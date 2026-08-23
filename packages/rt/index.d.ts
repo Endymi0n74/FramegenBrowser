@@ -47,6 +47,17 @@ export interface RTDebugOutputs {
   refineResidual: GPUTexture;
 }
 
+export interface RTMeasureOptions {
+  /** Request a non-blocking GPU timestamp sample for this submission. */
+  measure?: boolean;
+}
+
+/**
+ * A GPU duration in milliseconds. Null means timestamps are unavailable or
+ * every bounded timing slot is still busy; readback failures resolve to NaN.
+ */
+export type GpuTimingResult = Promise<number> | null;
+
 export interface CreateRTOptions {
   /** Output width in pixels. Must be divisible by 16. */
   w: number;
@@ -96,9 +107,9 @@ export interface RT {
     outTexs?: GPUTexture[],
   ): Promise<Uint8Array[] | null>;
   /** Texture mode: run the t-free trunk once for a frame pair. */
-  prepPair(a: GPUTexture, b: GPUTexture): void;
+  prepPair(a: GPUTexture, b: GPUTexture, options?: RTMeasureOptions): GpuTimingResult;
   /** Texture mode: one mid at timestep t into outTex (call prepPair first). */
-  runT(t: number, outTex: GPUTexture): void;
+  runT(t: number, outTex: GPUTexture, options?: RTMeasureOptions): GpuTimingResult;
   /**
    * @experimental Queue runT followed by diagnostic writes for the same t.
    * Present only when createRT receives debugOutputs: true.
@@ -114,6 +125,8 @@ export interface RT {
   profileT(a: GPUTexture, b: GPUTexture, t?: number, outTex?: GPUTexture | null): Promise<string>;
   /** Release every buffer/texture the runtime owns (safe with work in flight). */
   destroy(): void;
+  /** Whether bounded production-path GPU timestamp sampling is available. */
+  readonly hasGpuTimestamps: boolean;
   readonly w: number;
   readonly h: number;
 }

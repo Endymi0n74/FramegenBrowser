@@ -1,12 +1,18 @@
 {
   "name": "framegen",
-  "version": "1.4.1",
+  "version": "1.4.6",
   "description": "Real-time neural frame interpolation on raw WebGPU: hand-written WGSL kernels, 2.9 MB model, ~2 ms per generated frame on a mid-range GPU. The runtime behind the Framegen extension.",
   "type": "module",
   "main": "./rt.js",
   "exports": {
-    ".": "./rt.js",
-    "./sr": "./sr.js"
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./rt.js"
+    },
+    "./sr": {
+      "types": "./sr.d.ts",
+      "default": "./sr.js"
+    }
   },
   "types": "./index.d.ts",
   "files": [
@@ -14,6 +20,7 @@
     "sr.js",
     "weights",
     "index.d.ts",
+    "sr.d.ts",
     "LICENSE",
     "README.md"
   ],

@@ -14,7 +14,7 @@
       <span class="brand-dot" aria-hidden="true"></span>
       <strong>Framegen</strong>
       <h1>Advanced settings</h1>
-      <span class="version">v1.4.5</span>
+      <span class="version">v1.4.6</span>
     </div>
     <div class="header-actions">
       <div id="runtimeStatus" class="runtime-status" role="status" aria-live="polite">Loading settings…</div>
@@ -142,6 +142,19 @@
               <p id="hdrHint">Expand brightness on a compatible HDR display.</p>
             </div>
             <input id="hdr" name="hdr" class="switch" type="checkbox" aria-describedby="hdrHint">
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-copy">
+              <label for="sharpness">Sharpness</label>
+              <p id="sharpnessHint">Edge enhancement for the WebGPU canvas. High can create halos.</p>
+            </div>
+            <select id="sharpness" name="sharpness" aria-describedby="sharpnessHint">
+              <option value="0">Off</option>
+              <option value="1">Low</option>
+              <option value="2">Medium</option>
+              <option value="3">High</option>
+            </select>
           </div>
 
           <div class="setting-row">
