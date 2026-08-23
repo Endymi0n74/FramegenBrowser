@@ -36,8 +36,6 @@
   </div>
 
   <script type="module">
-    import { createRT } from './rt/rt.js';
-
     const WIDTH = 1280;
     const HEIGHT = 720;
     const SOURCE_FPS = 10;
@@ -47,10 +45,19 @@
       { id: 'circle1', shaderIndex: 1, color: [230, 153, 153] },
       { id: 'circle2', shaderIndex: 2, color: [230, 204, 230] },
     ]);
+    const ANIME_LINE_TRACKED_COLORS = Object.freeze([
+      { id: 'face', shaderIndex: 1, color: [230, 153, 153] },
+      { id: 'earring', shaderIndex: 3, color: [77, 217, 242] },
+    ]);
+    const ANIME_OCCLUSION_TRACKED_COLORS = Object.freeze([
+      { id: 'face', shaderIndex: 1, color: [230, 153, 153] },
+      { id: 'occluder', shaderIndex: 3, color: [77, 217, 242] },
+    ]);
     const FIXTURES = Object.freeze({
       collision: {
         id: 'collision',
         title: 'public-demo collision',
+        gateRole: 'blocking-relative',
         coverage: ['collision', 'occlusion', 'depth-order'],
         startSeconds: 2.7,
         endSeconds: 2.8,
@@ -68,6 +75,7 @@
       crossing: {
         id: 'crossing',
         title: 'two-object crossing with fixed depth order',
+        gateRole: 'blocking-relative',
         coverage: ['crossing', 'collision', 'depth-order'],
         startSeconds: 0,
         endSeconds: 0.1,
@@ -81,6 +89,7 @@
       acceleration: {
         id: 'acceleration',
         title: 'nonlinear acceleration crossing',
+        gateRole: 'diagnostic-unobservable',
         coverage: ['acceleration', 'crossing', 'trajectory'],
         startSeconds: 0,
         endSeconds: 0.1,
@@ -94,6 +103,7 @@
       bounce: {
         id: 'bounce',
         title: 'same-anchor hidden bounce',
+        gateRole: 'diagnostic-unobservable',
         coverage: ['bounce', 'unobservable-motion', 'temporal-context'],
         startSeconds: 0,
         endSeconds: 0.1,
@@ -107,6 +117,7 @@
       merge_zoom: {
         id: 'merge_zoom',
         title: 'asymmetric merge and zoom',
+        gateRole: 'blocking-relative',
         coverage: ['merge', 'zoom', 'occlusion'],
         startSeconds: 0,
         endSeconds: 0.1,
@@ -120,6 +131,7 @@
       rotate_thin: {
         id: 'rotate_thin',
         title: 'crossing rotating thin edges',
+        gateRole: 'blocking-relative',
         coverage: ['rotation', 'thin-edge', 'crossing'],
         startSeconds: 0,
         endSeconds: 0.1,
@@ -130,8 +142,51 @@
         trackedObjects: TRACKED_COLORS,
         source: { kind: 'in-harness', path: 'web/exact_gt_collision.html' },
       },
+      anime_line_pan: {
+        id: 'anime_line_pan',
+        title: 'fast anime-style line-art pan',
+        gateRole: 'diagnostic-stress',
+        coverage: ['anime-line-art', 'fast-pan', 'large-motion', 'thin-edge'],
+        startSeconds: 0,
+        endSeconds: 0.1,
+        sceneTime: 'normalized',
+        focusFrame: 17,
+        qualityRoi: { left: 40, top: 80, right: 1240, bottom: 660 },
+        trackingRoi: { left: 20, top: 60, right: 1260, bottom: 680 },
+        trackedObjects: ANIME_LINE_TRACKED_COLORS,
+        trackColorDistance: 48,
+        source: { kind: 'in-harness', path: 'web/exact_gt_collision.html' },
+      },
+      anime_hair_occlusion: {
+        id: 'anime_hair_occlusion',
+        title: 'anime-style hair sweep and face occlusion',
+        gateRole: 'blocking-relative',
+        coverage: ['anime-line-art', 'hair', 'occlusion', 'nonrigid-motion', 'thin-edge'],
+        startSeconds: 0,
+        endSeconds: 0.1,
+        sceneTime: 'normalized',
+        focusFrame: 14,
+        qualityRoi: { left: 220, top: 70, right: 1060, bottom: 670 },
+        trackingRoi: { left: 190, top: 50, right: 1090, bottom: 690 },
+        trackedObjects: ANIME_OCCLUSION_TRACKED_COLORS,
+        trackColorDistance: 48,
+        source: { kind: 'in-harness', path: 'web/exact_gt_collision.html' },
+      },
     });
     const searchParams = new URLSearchParams(location.search);
+    const MODEL_RUNGS = Object.freeze({
+      480: Object.freeze([848, 480]),
+      720: Object.freeze([1280, 720]),
+    });
+    const requestedModelRung = searchParams.get('rung') || '720';
+    const MODEL_RESOLUTION_VALID = Object.hasOwn(MODEL_RUNGS, requestedModelRung);
+    const [MODEL_WIDTH, MODEL_HEIGHT] = MODEL_RESOLUTION_VALID
+      ? MODEL_RUNGS[requestedModelRung]
+      : MODEL_RUNGS[720];
+    const requestedRuntimeUrl = searchParams.get('runtime') || './rt/rt.js';
+    const RUNTIME_SOURCE_URL = new URL(requestedRuntimeUrl, location.href);
+    const RUNTIME_SOURCE_VALID = RUNTIME_SOURCE_URL.origin === location.origin
+      && new Set(['/web/rt/rt.js', '/__framegen_heavy__/baseline.js']).has(RUNTIME_SOURCE_URL.pathname);
     const requestedFixtureId = searchParams.get('fixture') || 'collision';
     const FIXTURE_VALID = Object.hasOwn(FIXTURES, requestedFixtureId);
     const FIXTURE = FIXTURE_VALID ? FIXTURES[requestedFixtureId] : FIXTURES.collision;
@@ -144,7 +199,7 @@
     const EDGE_TOLERANCE_PX = 2;
     const FOREGROUND_RGB_DISTANCE = 32;
     const FOREGROUND_TOLERANCE_PX = 2;
-    const TRACK_COLOR_DISTANCE = 120;
+    const TRACK_COLOR_DISTANCE = FIXTURE.trackColorDistance || 120;
     const TRACK_MIN_PIXELS = 32;
     const TRACK_MIN_GT_AREA_RATIO = 0.1;
     const BACKGROUND_RGB = [13, 15, 23];
@@ -179,7 +234,7 @@
     const frameInput = document.getElementById('frame');
     const positionOutput = document.getElementById('position');
     document.querySelector('h1').textContent = `Exact-GT v7s benchmark: ${FIXTURE.title}`;
-    document.querySelector('body > p').textContent = `Deterministic ${FIXTURE.id} fixture, 1280x720. Anchors: ${START_SECONDS.toFixed(3)} s and ${END_SECONDS.toFixed(3)} s at ${SOURCE_FPS} FPS; ${STEPS - 1} synthetic k/${STEPS} frames at ${OUTPUT_FPS} FPS.`;
+    document.querySelector('body > p').textContent = `Deterministic ${FIXTURE.id} fixture, ${MODEL_WIDTH}x${MODEL_HEIGHT} inference to ${WIDTH}x${HEIGHT}. Anchors: ${START_SECONDS.toFixed(3)} s and ${END_SECONDS.toFixed(3)} s at ${SOURCE_FPS} FPS; ${STEPS - 1} synthetic k/${STEPS} frames at ${OUTPUT_FPS} FPS.`;
     const figureCaptions = document.querySelectorAll('figcaption');
     figureCaptions[0].textContent = `Anchor A - ${START_SECONDS.toFixed(3)} s`;
     figureCaptions[1].textContent = `Anchor B - ${END_SECONDS.toFixed(3)} s`;
@@ -248,6 +303,12 @@ fn box(p: vec2f, halfSize: vec2f) -> f32 {
   let d = abs(p) - halfSize;
   return length(max(d, vec2f(0.))) + min(max(d.x, d.y), 0.);
 }
+fn capsule(p: vec2f, a: vec2f, b: vec2f, radius: f32) -> f32 {
+  let pa = p - a;
+  let ba = b - a;
+  let h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+  return length(pa - ba * h) - radius;
+}
 fn rotate(p: vec2f, angle: f32) -> vec2f {
   let c = cos(angle);
   let s = sin(angle);
@@ -259,6 +320,7 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
 `;
     const COLOR_1_WGSL = 'vec3f(0.9, 0.6, 0.6)';
     const COLOR_2_WGSL = 'vec3f(0.9, 0.8, 0.9)';
+    const COLOR_3_WGSL = 'vec3f(0.3, 0.85, 0.95)';
     const SCENE_WGSL_BY_FIXTURE = Object.freeze({
       collision: SCENE_WGSL,
       crossing: SYNTHETIC_SCENE_COMMON_WGSL + `
@@ -328,6 +390,70 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
   var col = vec3f(0.05, 0.06, 0.09);
   col = paint(col, ${COLOR_1_WGSL}, box(q0, vec2f(0.165, 0.016)), 0.004);
   col = paint(col, ${COLOR_2_WGSL}, box(q1, vec2f(0.145, 0.014)), 0.004);
+  return vec4f(col, 1.0);
+}`,
+      anime_line_pan: SYNTHETIC_SCENE_COMMON_WGSL + `
+@fragment fn fs(in: VOut) -> @location(0) vec4f {
+  var p = in.uv;
+  p.x = p.x * u.aspect;
+  let t = clamp(u.t, 0.0, 1.0);
+  let center = vec2f(mix(0.18, 0.82, t) * u.aspect, 0.50 + 0.025 * sin(t * 3.14159265));
+  let q = rotate(p - center, mix(-0.22, 0.22, t));
+  let background = vec3f(0.05, 0.06, 0.09);
+  var col = background;
+  let panelPhase = fract(p.x * 2.2 - t * 1.7);
+  let panel = abs(panelPhase - 0.5) - 0.055;
+  col = paint(col, vec3f(0.13, 0.14, 0.19), panel, 0.004);
+  let speedLine = abs(fract(p.x * 7.0 - t * 3.0) - 0.5) - 0.010;
+  col = paint(col, vec3f(0.19, 0.20, 0.27), speedLine, 0.003);
+  col = paint(col, ${COLOR_1_WGSL}, circle(q, vec2f(0.0), 0.112), 0.003);
+  let hairCap = max(circle(q, vec2f(-0.010, -0.018), 0.119), q.y + 0.018);
+  var hair = hairCap;
+  hair = min(hair, capsule(q, vec2f(-0.090, -0.055), vec2f(-0.145, 0.020), 0.018));
+  hair = min(hair, capsule(q, vec2f(-0.050, -0.092), vec2f(-0.095, 0.060), 0.014));
+  hair = min(hair, capsule(q, vec2f(0.005, -0.112), vec2f(-0.020, 0.070), 0.013));
+  hair = min(hair, capsule(q, vec2f(0.055, -0.092), vec2f(0.065, 0.050), 0.012));
+  col = paint(col, ${COLOR_2_WGSL}, hair, 0.0025);
+  let outline = abs(circle(q, vec2f(0.0), 0.112)) - 0.0035;
+  col = paint(col, background, outline, 0.0015);
+  col = paint(col, background, capsule(q, vec2f(-0.048, -0.012), vec2f(-0.012, -0.016), 0.005), 0.0015);
+  col = paint(col, background, capsule(q, vec2f(0.028, -0.016), vec2f(0.064, -0.010), 0.005), 0.0015);
+  col = paint(col, background, capsule(q, vec2f(0.004, 0.004), vec2f(0.018, 0.034), 0.004), 0.0015);
+  col = paint(col, background, capsule(q, vec2f(-0.025, 0.064), vec2f(0.034, 0.060), 0.004), 0.0015);
+  col = paint(col, ${COLOR_3_WGSL}, circle(q, vec2f(-0.106, 0.055), 0.017), 0.002);
+  col = paint(col, background, circle(q, vec2f(-0.106, 0.055), 0.008), 0.0015);
+  return vec4f(col, 1.0);
+}`,
+      anime_hair_occlusion: SYNTHETIC_SCENE_COMMON_WGSL + `
+@fragment fn fs(in: VOut) -> @location(0) vec4f {
+  var p = in.uv;
+  p.x = p.x * u.aspect;
+  let t = clamp(u.t, 0.0, 1.0);
+  let center = vec2f(mix(0.43, 0.57, t) * u.aspect, 0.50);
+  let q = rotate(p - center, mix(-0.10, 0.14, t));
+  let background = vec3f(0.05, 0.06, 0.09);
+  var col = background;
+  col = paint(col, ${COLOR_1_WGSL}, circle(q, vec2f(0.0, 0.010), 0.132), 0.003);
+  let cap = max(circle(q, vec2f(-0.008, -0.025), 0.140), q.y + 0.010);
+  col = paint(col, ${COLOR_2_WGSL}, cap, 0.0025);
+  var strands = 1.0;
+  for (var k = 0u; k < 7u; k = k + 1u) {
+    let f = f32(k) / 6.0;
+    let root = vec2f(mix(-0.105, 0.105, f), -0.070 - 0.040 * sin(f * 3.14159265));
+    let angle = mix(2.55, 0.58, f) + mix(-0.52, 0.58, t);
+    let tip = root + vec2f(cos(angle), sin(angle)) * mix(0.125, 0.205, f);
+    strands = min(strands, capsule(q, root, tip, mix(0.006, 0.011, f)));
+  }
+  col = paint(col, ${COLOR_2_WGSL}, strands, 0.002);
+  let outline = abs(circle(q, vec2f(0.0, 0.010), 0.132)) - 0.0035;
+  col = paint(col, background, outline, 0.0015);
+  col = paint(col, background, capsule(q, vec2f(-0.060, -0.005), vec2f(-0.018, -0.010), 0.005), 0.0015);
+  col = paint(col, background, capsule(q, vec2f(0.025, -0.012), vec2f(0.066, -0.004), 0.005), 0.0015);
+  col = paint(col, background, capsule(q, vec2f(-0.024, 0.070), vec2f(0.042, 0.065), 0.004), 0.0015);
+  let armA = vec2f(mix(0.30, 0.66, t) * u.aspect, mix(0.70, 0.34, t));
+  let armB = armA + vec2f(0.19, -0.10);
+  col = paint(col, ${COLOR_3_WGSL}, capsule(p, armA, armB, 0.031), 0.003);
+  col = paint(col, background, abs(capsule(p, armA, armB, 0.031)) - 0.003, 0.0015);
   return vec4f(col, 1.0);
 }`,
     });
@@ -444,6 +570,61 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
       return { mae, psnr: mse === 0 ? null : 10 * Math.log10((255 * 255) / mse), maximum };
     }
 
+    function tileOrigins(length, tileSize, stride) {
+      if (length <= tileSize) return [0];
+      const origins = [];
+      for (let origin = 0; origin <= length - tileSize; origin += stride) origins.push(origin);
+      const finalOrigin = length - tileSize;
+      if (origins[origins.length - 1] !== finalOrigin) origins.push(finalOrigin);
+      return origins;
+    }
+
+    function worstTileMetric(actual, expected, region, requestedTileSize = 32, stride = 16) {
+      const width = region.right - region.left;
+      const height = region.bottom - region.top;
+      const tileSize = Math.min(requestedTileSize, width, height);
+      const integralWidth = width + 1;
+      const integral = new Float64Array(integralWidth * (height + 1));
+      for (let y = 0; y < height; y++) {
+        let rowSum = 0;
+        for (let x = 0; x < width; x++) {
+          const offset = ((region.top + y) * WIDTH + region.left + x) * 4;
+          rowSum += Math.abs(actual[offset] - expected[offset])
+            + Math.abs(actual[offset + 1] - expected[offset + 1])
+            + Math.abs(actual[offset + 2] - expected[offset + 2]);
+          integral[(y + 1) * integralWidth + x + 1] = integral[y * integralWidth + x + 1] + rowSum;
+        }
+      }
+      let worst = {
+        mae: -Infinity,
+        left: region.left,
+        top: region.top,
+        right: region.left + tileSize,
+        bottom: region.top + tileSize,
+      };
+      for (const y of tileOrigins(height, tileSize, stride)) {
+        for (const x of tileOrigins(width, tileSize, stride)) {
+          const x2 = x + tileSize;
+          const y2 = y + tileSize;
+          const sum = integral[y2 * integralWidth + x2]
+            - integral[y * integralWidth + x2]
+            - integral[y2 * integralWidth + x]
+            + integral[y * integralWidth + x];
+          const mae = sum / (tileSize * tileSize * 3);
+          if (mae > worst.mae) {
+            worst = {
+              mae,
+              left: region.left + x,
+              top: region.top + y,
+              right: region.left + x2,
+              bottom: region.top + y2,
+            };
+          }
+        }
+      }
+      return { tileSize, stride, ...worst };
+    }
+
     function percentile(values, fraction) {
       if (!values.length) return 0;
       const sorted = [...values].sort((a, b) => a - b);
@@ -455,13 +636,20 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
     }
 
     function summarize(values) {
-      if (!values.length) return { count: 0, mean: 0, p50: 0, p90: 0, maximum: 0 };
+      if (!values.length) return { count: 0, mean: 0, p50: 0, p90: 0, p95: 0, maximum: 0 };
+      let maximum = -Infinity;
+      let sum = 0;
+      for (const value of values) {
+        sum += value;
+        maximum = Math.max(maximum, value);
+      }
       return {
         count: values.length,
-        mean: values.reduce((sum, value) => sum + value, 0) / values.length,
+        mean: sum / values.length,
         p50: percentile(values, 0.5),
         p90: percentile(values, 0.9),
-        maximum: Math.max(...values),
+        p95: percentile(values, 0.95),
+        maximum,
       };
     }
 
@@ -550,26 +738,67 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
       return { data, width, height, points };
     }
 
-    function nearestBoundaryDistances(sourcePoints, targetPoints) {
-      if (!sourcePoints.length) return [];
-      const emptyDistance = Math.hypot(COLLISION_ROI.right - COLLISION_ROI.left, COLLISION_ROI.bottom - COLLISION_ROI.top);
-      if (!targetPoints.length) return sourcePoints.map(() => emptyDistance);
-      return sourcePoints.map(([x, y]) => {
-        let closestSquared = Infinity;
-        for (const [otherX, otherY] of targetPoints) {
-          const dx = x - otherX;
-          const dy = y - otherY;
-          closestSquared = Math.min(closestSquared, dx * dx + dy * dy);
+    function distanceTransform1d(input, output, length) {
+      const sites = new Int32Array(length);
+      const boundaries = new Float64Array(length + 1);
+      let lastSite = 0;
+      sites[0] = 0;
+      boundaries[0] = -Infinity;
+      boundaries[1] = Infinity;
+      for (let position = 1; position < length; position++) {
+        let intersection;
+        while (true) {
+          const site = sites[lastSite];
+          intersection = ((input[position] + position * position)
+            - (input[site] + site * site)) / (2 * position - 2 * site);
+          if (intersection > boundaries[lastSite]) break;
+          lastSite--;
         }
-        return Math.sqrt(closestSquared);
-      });
+        lastSite++;
+        sites[lastSite] = position;
+        boundaries[lastSite] = intersection;
+        boundaries[lastSite + 1] = Infinity;
+      }
+      lastSite = 0;
+      for (let position = 0; position < length; position++) {
+        while (boundaries[lastSite + 1] < position) lastSite++;
+        const offset = position - sites[lastSite];
+        output[position] = offset * offset + input[sites[lastSite]];
+      }
+    }
+
+    function nearestBoundaryDistances(sourceMask, targetMask) {
+      if (!sourceMask.points.length) return [];
+      const emptyDistance = Math.hypot(sourceMask.width, sourceMask.height);
+      if (!targetMask.points.length) return sourceMask.points.map(() => emptyDistance);
+      const { width, height } = targetMask;
+      const unreachable = width * width + height * height + 1;
+      const rowPass = new Float64Array(width * height);
+      const squaredDistances = new Float64Array(width * height);
+      const scratchLength = Math.max(width, height);
+      const input = new Float64Array(scratchLength);
+      const output = new Float64Array(scratchLength);
+      for (let y = 0; y < height; y++) {
+        const rowOffset = y * width;
+        for (let x = 0; x < width; x++) {
+          input[x] = targetMask.data[rowOffset + x] ? 0 : unreachable;
+        }
+        distanceTransform1d(input, output, width);
+        for (let x = 0; x < width; x++) rowPass[rowOffset + x] = output[x];
+      }
+      for (let x = 0; x < width; x++) {
+        for (let y = 0; y < height; y++) input[y] = rowPass[y * width + x];
+        distanceTransform1d(input, output, height);
+        for (let y = 0; y < height; y++) squaredDistances[y * width + x] = output[y];
+      }
+      return sourceMask.points.map(([x, y]) => Math.sqrt(squaredDistances[y * width + x]));
     }
 
     function boundaryWidthMetrics(actual, expected, region) {
       const actualEdges = makeEdgeMask(actual, region);
       const expectedEdges = makeEdgeMask(expected, region);
-      const actualDistances = nearestBoundaryDistances(actualEdges.points, expectedEdges.points);
-      const expectedDistances = nearestBoundaryDistances(expectedEdges.points, actualEdges.points);
+      const actualDistances = nearestBoundaryDistances(actualEdges, expectedEdges);
+      const expectedDistances = nearestBoundaryDistances(expectedEdges, actualEdges);
       const unmatchedActual = actualDistances.filter((distance) => distance > EDGE_TOLERANCE_PX);
       const unmatchedExpected = expectedDistances.filter((distance) => distance > EDGE_TOLERANCE_PX);
       return {
@@ -584,7 +813,15 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
     }
 
     function classifiedCentroids(pixels, region) {
-      const accumulators = Object.fromEntries(TRACKED_OBJECTS.map((object) => [object.id, { count: 0, sumX: 0, sumY: 0 }]));
+      const accumulators = Object.fromEntries(TRACKED_OBJECTS.map((object) => [object.id, {
+        count: 0,
+        sumX: 0,
+        sumY: 0,
+        minX: Infinity,
+        minY: Infinity,
+        maxX: -Infinity,
+        maxY: -Infinity,
+      }]));
       const foregroundThresholdSquared = FOREGROUND_RGB_DISTANCE * FOREGROUND_RGB_DISTANCE;
       const colorThresholdSquared = TRACK_COLOR_DISTANCE * TRACK_COLOR_DISTANCE;
       for (let y = region.top; y < region.bottom; y++) {
@@ -605,13 +842,33 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
           accumulator.count++;
           accumulator.sumX += x + 0.5;
           accumulator.sumY += y + 0.5;
+          accumulator.minX = Math.min(accumulator.minX, x);
+          accumulator.minY = Math.min(accumulator.minY, y);
+          accumulator.maxX = Math.max(accumulator.maxX, x);
+          accumulator.maxY = Math.max(accumulator.maxY, y);
         }
       }
       return Object.fromEntries(TRACKED_OBJECTS.map((object) => {
         const value = accumulators[object.id];
+        const centroid = value.count ? { x: value.sumX / value.count, y: value.sumY / value.count } : null;
+        const bounds = value.count ? {
+          left: value.minX,
+          top: value.minY,
+          right: value.maxX + 1,
+          bottom: value.maxY + 1,
+          width: value.maxX - value.minX + 1,
+          height: value.maxY - value.minY + 1,
+        } : null;
         return [object.id, {
           areaPx: value.count,
-          centroid: value.count ? { x: value.sumX / value.count, y: value.sumY / value.count } : null,
+          centroid,
+          bounds,
+          cardinalExtents: centroid && bounds ? {
+            left: centroid.x - bounds.left,
+            right: bounds.right - centroid.x,
+            top: centroid.y - bounds.top,
+            bottom: bounds.bottom - centroid.y,
+          } : null,
         }];
       }));
     }
@@ -629,16 +886,38 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
         const expectedObject = expectedObjects[object.id];
         const requiredPixels = Math.max(TRACK_MIN_PIXELS, Math.ceil(expectedObject.areaPx * TRACK_MIN_GT_AREA_RATIO));
         const trackMiss = expectedObject.areaPx >= TRACK_MIN_PIXELS && actualObject.areaPx < requiredPixels;
+        const comparableGeometry = !trackMiss
+          && actualObject.bounds && expectedObject.bounds
+          && actualObject.cardinalExtents && expectedObject.cardinalExtents;
+        const cardinalErrors = comparableGeometry
+          ? Object.keys(expectedObject.cardinalExtents).map((side) =>
+            actualObject.cardinalExtents[side] - expectedObject.cardinalExtents[side])
+          : [];
         objects[object.id] = {
           actualAreaPx: actualObject.areaPx,
           expectedAreaPx: expectedObject.areaPx,
+          areaRatio: expectedObject.areaPx ? actualObject.areaPx / expectedObject.areaPx : null,
           requiredAreaPx: requiredPixels,
           actualCentroid: actualObject.centroid,
           expectedCentroid: expectedObject.centroid,
+          actualBounds: actualObject.bounds,
+          expectedBounds: expectedObject.bounds,
           trackMiss,
           centroidErrorPx: trackMiss || !actualObject.centroid || !expectedObject.centroid
             ? null
             : pointDistance(actualObject.centroid, expectedObject.centroid),
+          widthErrorPx: comparableGeometry
+            ? actualObject.bounds.width - expectedObject.bounds.width
+            : null,
+          heightErrorPx: comparableGeometry
+            ? actualObject.bounds.height - expectedObject.bounds.height
+            : null,
+          cardinalExtentErrorPx: cardinalErrors.length
+            ? Math.max(...cardinalErrors.map(Math.abs))
+            : null,
+          outwardCardinalErrorPx: cardinalErrors.length
+            ? Math.max(0, ...cardinalErrors)
+            : null,
         };
       }
       const first = objects[TRACKED_OBJECTS[0].id];
@@ -808,6 +1087,12 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
       if (!FIXTURE_VALID) {
         throw new Error(`Unknown fixture "${requestedFixtureId}". Expected one of: ${Object.keys(FIXTURES).join(', ')}`);
       }
+      if (!MODEL_RESOLUTION_VALID) {
+        throw new Error(`Unknown model rung "${requestedModelRung}". Expected one of: ${Object.keys(MODEL_RUNGS).join(', ')}`);
+      }
+      if (!RUNTIME_SOURCE_VALID) {
+        throw new Error(`Unsupported same-origin runtime URL: ${RUNTIME_SOURCE_URL.href}`);
+      }
       if (!navigator.gpu) throw new Error('WebGPU is unavailable');
       const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
       if (!adapter) throw new Error('No WebGPU adapter');
@@ -815,14 +1100,16 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
       const device = await adapter.requestDevice({ requiredFeatures: requestedFeatures });
       const weightsBinUrl = new URL('../extension/assets/rt_v7s.bin', import.meta.url);
       const weightsManifestUrl = new URL('../extension/assets/rt_v7s.json', import.meta.url);
-      const runtimeSourceUrl = new URL('./rt/rt.js', import.meta.url);
       const harnessSourceUrl = new URL(location.pathname, location.origin);
       const [weightsBin, weightsManifestBytes, runtimeSourceBytes, harnessSourceBytes] = await Promise.all([
         fetchRequired(weightsBinUrl, 'arrayBuffer'),
         fetchRequired(weightsManifestUrl, 'arrayBuffer'),
-        fetchRequired(runtimeSourceUrl, 'arrayBuffer'),
+        fetchRequired(RUNTIME_SOURCE_URL, 'arrayBuffer'),
         fetchRequired(harnessSourceUrl, 'arrayBuffer'),
       ]);
+      const runtimeModule = await import(RUNTIME_SOURCE_URL.href);
+      if (typeof runtimeModule.createRT !== 'function') throw new Error('Runtime module does not export createRT');
+      const { createRT } = runtimeModule;
       const weightsManifest = JSON.parse(new TextDecoder().decode(weightsManifestBytes));
       const [weightsSha256, weightsManifestSha256, runtimeSha256, harnessSha256] = await Promise.all([
         sha256Hex(weightsBin),
@@ -833,14 +1120,18 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
       const provenance = {
         fixtureSource: FIXTURE_SOURCE,
         harness: { path: 'web/exact_gt_collision.html', sizeBytes: harnessSourceBytes.byteLength, sha256: harnessSha256 },
-        runtime: { path: 'web/rt/rt.js', sizeBytes: runtimeSourceBytes.byteLength, sha256: runtimeSha256 },
+        runtime: {
+          path: decodeURIComponent(RUNTIME_SOURCE_URL.pathname).replace(/^\//, ''),
+          sizeBytes: runtimeSourceBytes.byteLength,
+          sha256: runtimeSha256,
+        },
         weights: { path: 'extension/assets/rt_v7s.bin', sizeBytes: weightsBin.byteLength, sha256: weightsSha256 },
         weightsManifest: { path: 'extension/assets/rt_v7s.json', sizeBytes: weightsManifestBytes.byteLength, sha256: weightsManifestSha256 },
       };
       statusElement.textContent = 'Creating v7s runtime…';
       const runtime = await createRT(device, {
-        w: WIDTH,
-        h: HEIGHT,
+        w: MODEL_WIDTH,
+        h: MODEL_HEIGHT,
         weightsBin,
         weightsManifest,
         textureInput: true,
@@ -960,6 +1251,7 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
           const metric = compare(generated, groundTruth);
           const roiMetric = compareRegion(generated, groundTruth, COLLISION_ROI);
           const collisionEdges = edgeMetrics(generated, groundTruth, COLLISION_ROI);
+          const worstTile = worstTileMetric(generated, groundTruth, COLLISION_ROI);
           const foreground = foregroundAreaMetrics(generated, groundTruth, COLLISION_ROI);
           const boundary = boundaryWidthMetrics(generated, groundTruth, COLLISION_ROI);
           const tracking = objectTrackingMetrics(generated, groundTruth);
@@ -969,6 +1261,7 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
           delete boundary.samples;
           const sanityImage = compareRegion(groundTruth, groundTruth, COLLISION_ROI);
           const sanityEdges = edgeMetrics(groundTruth, groundTruth, COLLISION_ROI);
+          const sanityWorstTile = worstTileMetric(groundTruth, groundTruth, COLLISION_ROI);
           const sanityForeground = foregroundAreaMetrics(groundTruth, groundTruth, COLLISION_ROI);
           const sanityBoundary = boundaryWidthMetrics(groundTruth, groundTruth, COLLISION_ROI);
           const sanityTracking = objectTrackingMetrics(groundTruth, groundTruth);
@@ -986,6 +1279,7 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
             collisionEdgeF1: collisionEdges.f1,
             collisionEdgePrecision: collisionEdges.precision,
             collisionEdgeRecall: collisionEdges.recall,
+            worstTile,
             foreground,
             boundary,
             tracking,
@@ -1028,6 +1322,7 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
             edgeF1: sanityEdges.f1,
             edgePrecision: sanityEdges.precision,
             edgeRecall: sanityEdges.recall,
+            worstTile: sanityWorstTile,
             foreground: sanityForeground,
             boundary: sanityBoundary,
             tracking: sanityTracking,
@@ -1067,6 +1362,19 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
           doubleEdgeWidthPx: summarize(doubleEdgeDistanceSamples),
           unmatchedBoundaryWidthPx: summarize(unmatchedBoundaryDistanceSamples),
         };
+        const edgeAggregate = {
+          f1: summarize(frames.map((frame) => frame.collisionEdgeF1)),
+          precision: summarize(frames.map((frame) => frame.collisionEdgePrecision)),
+          recall: summarize(frames.map((frame) => frame.collisionEdgeRecall)),
+        };
+        const worstTileAggregate = {
+          mae: summarize(frames.map((frame) => frame.worstTile.mae)),
+          worst: frames.reduce((current, frame) => (
+            !current || frame.worstTile.mae > current.mae
+              ? { frame: frame.frame, t: frame.t, ...frame.worstTile }
+              : current
+          ), null),
+        };
         const temporalFrames = frames.filter((frame) => frame.temporal);
         const temporalAggregate = {
           transitions: temporalFrames.length,
@@ -1079,8 +1387,13 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
         const trackingObjects = Object.fromEntries(TRACKED_OBJECTS.map((object) => {
           const rows = frames.map((frame) => frame.tracking.objects[object.id]);
           const errors = rows.map((row) => row.centroidErrorPx).filter((value) => value !== null);
+          const values = (name) => rows.map((row) => row[name]).filter(Number.isFinite);
           return [object.id, {
             centroidErrorPx: summarize(errors),
+            absoluteWidthErrorPx: summarize(values('widthErrorPx').map(Math.abs)),
+            absoluteHeightErrorPx: summarize(values('heightErrorPx').map(Math.abs)),
+            cardinalExtentErrorPx: summarize(values('cardinalExtentErrorPx')),
+            outwardCardinalErrorPx: summarize(values('outwardCardinalErrorPx')),
             trackMissFrames: frames.filter((frame) => frame.tracking.objects[object.id].trackMiss).map((frame) => frame.frame),
             trackMissCount: frames.filter((frame) => frame.tracking.objects[object.id].trackMiss).length,
           }];
@@ -1220,12 +1533,13 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
             frames: representativeFrames,
           };
         }
-        const sanityPassed = sanityFrames.every((frame) =>
+        const sanityFramePassed = (frame) =>
           frame.roiMae === 0
           && frame.roiPsnr === null
           && frame.edgeF1 === 1
           && frame.edgePrecision === 1
           && frame.edgeRecall === 1
+          && frame.worstTile.mae === 0
           && frame.foreground.falsePositiveAreaPx === 0
           && frame.foreground.missingAreaPx === 0
           && frame.boundary.unmatchedActualBoundaryPx === 0
@@ -1235,7 +1549,12 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
           && frame.tracking.identityAssignment === 'same'
           && TRACKED_OBJECTS.every((object) => {
             const track = frame.tracking.objects[object.id];
-            return !track.trackMiss && track.centroidErrorPx === 0;
+            return !track.trackMiss
+              && track.centroidErrorPx === 0
+              && track.widthErrorPx === 0
+              && track.heightErrorPx === 0
+              && track.cardinalExtentErrorPx === 0
+              && track.outwardCardinalErrorPx === 0;
           })
           && (!frame.temporal || (
             frame.temporal.mae === 0
@@ -1244,8 +1563,9 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
             && frame.temporal.maximum === 0
             && frame.temporal.flickerExcessMae === 0
             && frame.temporal.temporalDeltaDeficitMae === 0
-          ))
-        );
+          ));
+        const sanityFailures = sanityFrames.filter((frame) => !sanityFramePassed(frame));
+        const sanityPassed = sanityFailures.length === 0;
         const sanity = {
           comparison: 'GT versus the identical GT pixels through every metric implementation',
           passed: sanityPassed,
@@ -1264,18 +1584,31 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
           },
           frames: sanityFrames,
         };
-        if (!sanityPassed) throw new Error('GT-vs-GT metric sanity check failed');
+        if (!sanityPassed) {
+          throw new Error(`GT-vs-GT metric sanity check failed for ${sanityFailures.length} frame(s): ${JSON.stringify(sanityFailures.slice(0, 3))}`);
+        }
         const collision = frames.find((frame) => frame.frame === COLLISION_FRAME);
+        await preview(worst.frame, false);
+        const artifacts = {
+          frame: worst.frame,
+          t: worst.t,
+          groundTruthPng: document.getElementById('groundTruth').toDataURL('image/png'),
+          generatedPng: document.getElementById('generated').toDataURL('image/png'),
+          errorMapPng: document.getElementById('errorMap').toDataURL('image/png'),
+        };
         const result = {
           state: 'done',
           model: 'v7s',
           fixture: {
             id: FIXTURE.id,
             title: FIXTURE.title,
+            gateRole: FIXTURE.gateRole || 'descriptive',
             coverage: FIXTURE.coverage,
             available: Object.keys(FIXTURES),
           },
           resolution: `${WIDTH}x${HEIGHT}`,
+          modelResolution: `${MODEL_WIDTH}x${MODEL_HEIGHT}`,
+          outputResolution: `${WIDTH}x${HEIGHT}`,
           sourceFps: SOURCE_FPS,
           outputFps: OUTPUT_FPS,
           anchorsSeconds: [START_SECONDS, END_SECONDS],
@@ -1287,8 +1620,10 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
             psnr,
             foreground: foregroundAggregate,
             boundary: boundaryAggregate,
+            edge: edgeAggregate,
             tracking: trackingAggregate,
             temporal: temporalAggregate,
+            localError: worstTileAggregate,
           },
           representativePlan,
           focus: { frame: COLLISION_FRAME, seconds: secondsForFrame(COLLISION_FRAME) },
@@ -1299,6 +1634,7 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
             edgeThreshold: EDGE_THRESHOLD,
             edgeTolerancePx: EDGE_TOLERANCE_PX,
             edgeF1: 'Symmetric boundary precision/recall with square-neighborhood tolerance.',
+            localError: 'Worst 32x32 RGB-MAE tile inside qualityRoi, scanned every 16 px plus the final row and column; prevents a small local failure from disappearing in a scene average.',
             foregroundArea: {
               roi: 'collisionRoi',
               backgroundRgb8: BACKGROUND_RGB,
@@ -1321,6 +1657,8 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
               classifier: `Nearest fixed RGB8 fixture color, foreground distance >= ${FOREGROUND_RGB_DISTANCE}, color distance <= ${TRACK_COLOR_DISTANCE}.`,
               trackMiss: `Generated classified area < max(${TRACK_MIN_PIXELS} px, ${TRACK_MIN_GT_AREA_RATIO} * GT classified area).`,
               centroidErrorPx: 'Euclidean distance between generated and GT color-class centroids for each observable tracked primitive.',
+              cardinalExtentErrorPx: 'Maximum absolute left/right/top/bottom silhouette-extent error around each color-class centroid; catches phase-local contour tabs that aggregate image scores can hide.',
+              outwardCardinalErrorPx: 'Maximum positive cardinal silhouette expansion beyond the GT extent for each tracked object.',
               identityProxy: 'The fixture makes the two identities observable by distinct fixed colors. "swapped" means the two color-centroids have lower swapped-center assignment cost than same-ID cost; this is a deterministic proxy, not a general tracker ID-switch metric.',
               identitySwitchProxyEvents: 'Transitions between detectable same/swapped proxy assignments; undetectable frames are reported separately.',
             },
@@ -1336,6 +1674,7 @@ fn paint(base: vec3f, color: vec3f, distance: f32, aa: f32) -> vec3f {
           },
           collision,
           worst,
+          artifacts,
           frames,
           sanity,
           adapter: adapter.info || null,
