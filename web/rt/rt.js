@@ -972,7 +972,7 @@ fn warpT(t: texture_2d<f32>, sx: f32, sy: f32) -> vec3<f32> {
   return textureSampleLevel(t, samp, uv, 0.0).bgr; // b,g,r like the buffer path
 }
 
-fn edgeUpsample(uv: vec2<f32>, guide: vec3<f32>) -> vec4<f32> {
+fn edgeUpsample(uv: vec2<f32>, guide: vec3<f32>, bilinearFlow: vec4<f32>) -> vec4<f32> {
   let dim = vec2<i32>(textureDimensions(t8f));
   let fdim = vec2<f32>(dim);
   let p = uv * fdim - 0.5;
@@ -998,7 +998,10 @@ fn edgeUpsample(uv: vec2<f32>, guide: vec3<f32>) -> vec4<f32> {
   let w10 = s10 * exp(-48.0 * dot(c10 - guide, c10 - guide));
   let w01 = s01 * exp(-48.0 * dot(c01 - guide, c01 - guide));
   let w11 = s11 * exp(-48.0 * dot(c11 - guide, c11 - guide));
-  let ws = max(1e-6, w00 + w10 + w01 + w11);
+  let ws = w00 + w10 + w01 + w11;
+  if (!(ws >= 1e-6)) {
+    return bilinearFlow;
+  }
   let flow = (textureLoad(t8f, p00, 0) * w00 + textureLoad(t8f, p10, 0) * w10
     + textureLoad(t8f, p01, 0) * w01 + textureLoad(t8f, p11, 0) * w11) / ws;
   return flow;
@@ -1018,7 +1021,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (outDim.x > ${W}.0 || outDim.y > ${H}.0) {
     let guide = (textureSampleLevel(tex0, samp, uv8, 0.0).rgb
       + textureSampleLevel(tex1, samp, uv8, 0.0).rgb) * 0.5;
-    flow = edgeUpsample(uv8, guide);
+    flow = edgeUpsample(uv8, guide, flow);
   }
   let fl = flow * 8.0 * scale;
 ${COMPOSITE}

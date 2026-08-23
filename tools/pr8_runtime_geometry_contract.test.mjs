@@ -73,8 +73,25 @@ test('edge-guided upsampling does not compute an unconsumed mask variant', () =>
 
   assert.match(upsample, /-> vec4<f32>/);
   assert.doesNotMatch(upsample, /FlowMask|textureLoad\(t8m/);
-  assert.match(flowOut, /flow = edgeUpsample\(uv8, guide\);/);
+  assert.match(flowOut, /flow = edgeUpsample\(uv8, guide, flow\);/);
   assert.doesNotMatch(flowOut, /edgeUpsample\(uv8, guide\)\.flow/);
+});
+
+test('edge-guided upsampling falls back before normalizing negligible weights', () => {
+  const flowOut = section(extensionRuntime, 'function wgslFlowOutTexDirect',
+    '\nfunction wgslDebugWarpsDirect');
+  const upsample = section(flowOut, 'fn edgeUpsample', '@compute');
+
+  assert.match(upsample,
+    /fn edgeUpsample\(uv: vec2<f32>, guide: vec3<f32>, bilinearFlow: vec4<f32>\)/);
+  assert.match(upsample, /let ws = w00 \+ w10 \+ w01 \+ w11;/);
+  assert.match(upsample,
+    /if \(!\(ws >= 1e-6\)\) \{\s*return bilinearFlow;\s*\}/);
+  assert.doesNotMatch(upsample, /let ws = max\(1e-6,/);
+  assert.doesNotMatch(upsample, /textureSampleLevel\(t8f,/,
+    'the fallback must reuse the already sampled flow');
+  assert.ok(upsample.indexOf('return bilinearFlow;') < upsample.indexOf(') / ws;'),
+    'the fallback must run before normalizing the weighted flow');
 });
 
 test('production timing isolates pair prep and complete per-mid GPU work', () => {
