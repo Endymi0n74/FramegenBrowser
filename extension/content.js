@@ -126,6 +126,217 @@
     try { chrome.storage.local.set(cfg); } catch {}
   }
   let panelProfileStore = null;
+  const customSelects = new Map();
+  let customSelectDocumentHandlers = false;
+
+  function customSelectLabel(select) {
+    const copy = select.closest('.fc-row')?.querySelector(':scope > span');
+    return copy?.childNodes[0]?.textContent?.trim() || 'Choose an option';
+  }
+
+  function closeCustomSelect(component, restoreFocus = false) {
+    if (!component || component.root.dataset.open !== 'true') return;
+    component.root.dataset.open = 'false';
+    component.trigger.setAttribute('aria-expanded', 'false');
+    component.menu.hidden = true;
+    if (restoreFocus) component.trigger.focus({ preventScroll: true });
+  }
+
+  function closeCustomSelects(except = null) {
+    for (const component of customSelects.values()) {
+      if (component !== except) closeCustomSelect(component);
+    }
+  }
+
+  function focusCustomOption(component, edge = 'selected') {
+    const options = [...component.menu.querySelectorAll('.fc-select-option:not(:disabled)')];
+    if (!options.length) return;
+    const selectedIndex = Math.max(0,
+      options.findIndex(option => option.getAttribute('aria-selected') === 'true'));
+    const index = edge === 'first' ? 0 : edge === 'last' ? options.length - 1 : selectedIndex;
+    options[index].focus({ preventScroll: true });
+  }
+
+  function openCustomSelect(component, focusOption = false, edge = 'selected') {
+    if (!component || component.trigger.disabled) return;
+    closeCustomSelects(component);
+    component.root.dataset.open = 'true';
+    component.trigger.setAttribute('aria-expanded', 'true');
+    component.menu.hidden = false;
+    const rootRect = component.root.getBoundingClientRect();
+    const panelRect = panel?.getBoundingClientRect() || document.documentElement.getBoundingClientRect();
+    const menuHeight = Math.min(250, component.menu.scrollHeight);
+    const below = Math.max(0, panelRect.bottom - rootRect.bottom - 4);
+    const above = Math.max(0, rootRect.top - panelRect.top - 4);
+    const opensUp = below < menuHeight && above > below;
+    component.root.dataset.placement = opensUp ? 'up' : 'down';
+    component.menu.style.maxHeight = Math.max(72, Math.min(250, opensUp ? above : below)) + 'px';
+    if (focusOption) requestAnimationFrame(() => focusCustomOption(component, edge));
+  }
+
+  function syncCustomSelect(select) {
+    const component = customSelects.get(select);
+    if (!component) return;
+    const selected = select.selectedOptions[0] || select.options[0];
+    component.value.textContent = selected?.textContent || '';
+    component.trigger.disabled = select.disabled;
+    component.trigger.setAttribute('aria-disabled', String(select.disabled));
+    component.menu.querySelectorAll('.fc-select-option').forEach(item => {
+      item.setAttribute('aria-selected', String(item.dataset.value === select.value));
+    });
+    if (select.disabled) closeCustomSelect(component);
+  }
+
+  function chooseCustomSelectOption(component, item) {
+    if (!item || item.disabled || component.select.disabled) return;
+    const changed = component.select.value !== item.dataset.value;
+    component.select.value = item.dataset.value;
+    syncCustomSelect(component.select);
+    closeCustomSelect(component, true);
+    if (changed) component.select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function appendCustomSelectOption(component, option, parent, index) {
+    const item = document.createElement('button');
+    item.className = 'fc-select-option';
+    item.type = 'button';
+    item.id = `${component.menu.id}Option${index}`;
+    item.dataset.value = option.value;
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(option.selected));
+    item.disabled = option.disabled;
+    item.tabIndex = -1;
+    item.textContent = option.textContent;
+    parent.append(item);
+  }
+
+  function rebuildCustomSelect(select) {
+    const component = customSelects.get(select);
+    if (!component) return;
+    closeCustomSelect(component);
+    component.menu.replaceChildren();
+    let optionIndex = 0, groupIndex = 0;
+    for (const child of select.children) {
+      if (child instanceof HTMLOptGroupElement) {
+        const group = document.createElement('div');
+        const groupLabel = document.createElement('div');
+        group.className = 'fc-select-options-group';
+        group.setAttribute('role', 'group');
+        groupLabel.className = 'fc-select-group';
+        groupLabel.id = `${component.menu.id}Group${groupIndex++}`;
+        groupLabel.textContent = child.label;
+        group.setAttribute('aria-labelledby', groupLabel.id);
+        group.append(groupLabel);
+        for (const option of child.children) {
+          appendCustomSelectOption(component, option, group, optionIndex++);
+        }
+        component.menu.append(group);
+      } else if (child instanceof HTMLOptionElement) {
+        appendCustomSelectOption(component, child, component.menu, optionIndex++);
+      }
+    }
+    syncCustomSelect(select);
+  }
+
+  function enhanceCustomSelect(select, index) {
+    if (customSelects.has(select)) return;
+    const root = document.createElement('div');
+    const trigger = document.createElement('button');
+    const value = document.createElement('span');
+    const menu = document.createElement('div');
+    root.className = 'fc-select';
+    root.dataset.open = 'false';
+    trigger.className = 'fc-select-trigger';
+    trigger.type = 'button';
+    trigger.setAttribute('role', 'combobox');
+    trigger.setAttribute('aria-label', customSelectLabel(select));
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    const menuId = `__framegenSelectMenu${index}`;
+    trigger.setAttribute('aria-controls', menuId);
+    value.className = 'fc-select-value';
+    trigger.append(value);
+    trigger.insertAdjacentHTML('beforeend',
+      '<svg class="fc-select-chevron" viewBox="0 0 12 12" aria-hidden="true">'
+      + '<path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.4" '
+      + 'stroke-linecap="round" stroke-linejoin="round"/></svg>');
+    menu.className = 'fc-select-menu';
+    menu.id = menuId;
+    menu.setAttribute('role', 'listbox');
+    menu.setAttribute('aria-label', customSelectLabel(select));
+    menu.hidden = true;
+    select.before(root);
+    root.append(select, trigger, menu);
+    select.dataset.enhanced = 'true';
+    select.setAttribute('aria-hidden', 'true');
+    select.tabIndex = -1;
+    const component = { root, select, trigger, value, menu };
+    customSelects.set(select, component);
+    rebuildCustomSelect(select);
+
+    trigger.addEventListener('click', event => {
+      event.stopPropagation();
+      if (root.dataset.open === 'true') closeCustomSelect(component);
+      else openCustomSelect(component);
+    });
+    trigger.addEventListener('keydown', event => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault(); event.stopPropagation();
+        openCustomSelect(component, true, event.key === 'ArrowUp' ? 'last' : 'selected');
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault(); event.stopPropagation();
+        openCustomSelect(component, true, event.key === 'Home' ? 'first' : 'last');
+      } else if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation();
+        closeCustomSelect(component);
+      }
+    });
+    menu.addEventListener('click', event => {
+      event.stopPropagation();
+      chooseCustomSelectOption(component, event.target.closest('.fc-select-option'));
+    });
+    menu.addEventListener('keydown', event => {
+      const options = [...menu.querySelectorAll('.fc-select-option:not(:disabled)')];
+      const current = options.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault(); event.stopPropagation();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        options[(current + step + options.length) % options.length]
+          ?.focus({ preventScroll: true });
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault(); event.stopPropagation();
+        options[event.key === 'Home' ? 0 : options.length - 1]?.focus({ preventScroll: true });
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); event.stopPropagation();
+        chooseCustomSelectOption(component, document.activeElement.closest('.fc-select-option'));
+      } else if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation();
+        closeCustomSelect(component, true);
+      } else if (event.key === 'Tab') {
+        closeCustomSelect(component);
+      } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const query = event.key.toLocaleLowerCase();
+        const match = options.find(option =>
+          option.textContent.trim().toLocaleLowerCase().startsWith(query));
+        if (match) {
+          event.preventDefault(); event.stopPropagation();
+          match.focus({ preventScroll: true });
+        }
+      }
+    });
+    select.addEventListener('change', () => syncCustomSelect(select));
+  }
+
+  function enhanceCustomSelects(root) {
+    [...root.querySelectorAll('.fc-sel')].forEach(enhanceCustomSelect);
+    if (customSelectDocumentHandlers) return;
+    customSelectDocumentHandlers = true;
+    document.addEventListener('pointerdown', event => {
+      for (const component of customSelects.values()) {
+        if (!component.root.contains(event.target)) closeCustomSelect(component);
+      }
+    });
+  }
 
   function fpsLimitStepIndex(value) {
     return Profiles.fpsLimitPresetIndex(value);
@@ -221,6 +432,7 @@
     } catch {
       select.value = '';
     }
+    syncCustomSelect(select);
   }
 
   function renderPanelProfiles() {
@@ -244,6 +456,7 @@
     }
     select.replaceChildren(...children);
     select.disabled = false;
+    rebuildCustomSelect(select);
     syncPanelProfileSelection();
   }
 
@@ -269,6 +482,7 @@
         unavailable.textContent = 'Profiles unavailable';
         select.replaceChildren(unavailable);
         select.disabled = true;
+        rebuildCustomSelect(select);
       }
       log('profiles', error);
     }
@@ -291,9 +505,13 @@
 
   function syncPanel() {
     if (!panel) return;
-    panel.querySelector('#fcFactor').value = String(cfg.factor);
+    const factor = panel.querySelector('#fcFactor');
+    const resolution = panel.querySelector('#fcRes');
+    factor.value = String(cfg.factor);
+    syncCustomSelect(factor);
     syncRateSlider();
-    panel.querySelector('#fcRes').value = String(cfg.res);
+    resolution.value = String(cfg.res);
+    syncCustomSelect(resolution);
     panel.querySelector('#fcFG').checked = cfg.fg;
     panel.querySelector('#fcSR').checked = cfg.sr;
     panel.querySelector('#fcShowFps').checked = cfg.showFps;
@@ -336,6 +554,10 @@
   let srCostProbeGeneration = 0, srCostProcessedForKey = 0;
   const srCostSamples = [];
   let btn = null, gear = null, hud = null, panel = null, statsTimer = 0;
+  let controlsRoot = null, controlsStage = null, controlsSurface = null, controlsClip = null, controlsShape = null;
+  let controlsSurfaceProgress = 0, controlsSurfaceFrame = 0;
+  let controlsWidth = 376, controlsHeight = 626, controlsIslandCenter = 313, panelOpen = false;
+  const INLINE_SETTINGS_MIN_WIDTH = 300, INLINE_SETTINGS_MIN_HEIGHT = 180;
   let bar = null, barSeeking = false, wm = null;
   let rafMs = 0, lastPumpT = 0, warnEl = null, overSince = 0;
   let splitEl = null, splitX = 0.5, toggling = false, autoSkipT = 0;
@@ -1827,8 +2049,8 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
   function reparentUI() {
     const uiHost = document.fullscreenElement || document.body;
     if (uiHost.tagName === 'VIDEO') return; // bare-video fullscreen: nothing can overlay it
-    if (btn && btn.parentElement !== uiHost) {
-      uiHost.appendChild(btn); uiHost.appendChild(gear); uiHost.appendChild(hud); uiHost.appendChild(panel);
+    if (controlsRoot && controlsRoot.parentElement !== uiHost) {
+      uiHost.appendChild(controlsRoot); uiHost.appendChild(hud);
       if (bar) uiHost.appendChild(bar);
       if (splitEl) uiHost.appendChild(splitEl);
       if (warnEl) uiHost.appendChild(warnEl);
@@ -1843,15 +2065,17 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
     if (cfg.debug) log('diagnostics fullscreenchange', diagnosticSnapshot());
     reparentUI();
     sbLeft = -1; // force button re-place at the new geometry
+    sbTop = -1; sbWidth = -1; sbHeight = -1; sbCenter = -1;
     // coords from the OLD geometry are garbage for a moment: hide, let the page
     // reflow (two frames), then re-place against the fresh video rect
-    if (btn) { btn.style.display = 'none'; gear.style.display = 'none'; }
+    setPanelOpen(false);
+    setControlsVisible(false);
     uiScan = 0; // the biggest-video answer may change across fullscreen too
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (cfg.debug) log('diagnostics fullscreen settled', diagnosticSnapshot());
       const v = running ? videoEl : uiVideo;
       if (v && btn && performance.now() < revealUntil) {
-        placeSideButtons(v.getBoundingClientRect());
+        placeSideButtons(v.getBoundingClientRect(), v);
       }
     }));
   });
@@ -2073,7 +2297,103 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
   // bar BELOW the canvas) our controls are the only usable ones.
   const SITE_CONTROLS_OK = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|twitch\.tv)$/
     .test(location.hostname);
-  let revealUntil = 0, uiVideo = null, uiScan = 0, mmLast = 0;
+  let revealUntil = 0, uiVideo = null, uiScan = -1e9, mmLast = -1e9;
+  const clampUnit = value => Math.min(1, Math.max(0, value));
+  const surfaceEase = value => {
+    const t = clampUnit(value);
+    return t * t * (3 - 2 * t);
+  };
+  const surfaceMix = (from, to, progress) => from + (to - from) * progress;
+  const surfaceCoordinate = value => Number(value.toFixed(3));
+
+  function buildControlsSurfacePath(progress) {
+    const x = surfaceEase(progress / .82);
+    const y = surfaceEase((progress - .12) / .88);
+    const px = (from, to) => surfaceCoordinate(surfaceMix(from, to, x));
+    const py = (from, to) => surfaceCoordinate(surfaceMix(from, to, y));
+    const islandTop = controlsIslandCenter - 39;
+    const islandBottom = controlsIslandCenter + 39;
+    const openRight = controlsWidth - 1;
+    const openRightInset = controlsWidth - 12;
+    const openBottom = controlsHeight - 1;
+
+    return `M${px(-2, 55)} ${py(islandTop, 1)}H${px(38, openRightInset)}`
+      + `Q${px(43, openRight)} ${py(islandTop, 1)} ${px(43, openRight)} ${py(islandTop + 5, 12)}`
+      + `V${py(islandBottom - 5, openBottom - 11)}`
+      + `Q${px(43, openRight)} ${py(islandBottom, openBottom)} ${px(38, openRightInset)} ${py(islandBottom, openBottom)}`
+      + `H${px(-2, 55)}Q${px(-2, 43)} ${py(islandBottom, openBottom)} `
+      + `${px(-2, 43)} ${py(islandBottom, openBottom - 12)}`
+      + `V${islandBottom}H-2V${islandTop}H${px(-2, 43)}V${py(islandTop, 13)}`
+      + `Q${px(-2, 43)} ${py(islandTop, 1)} ${px(-2, 55)} ${py(islandTop, 1)}Z`;
+  }
+
+  function applyControlsSurfaceProgress(progress) {
+    controlsSurfaceProgress = clampUnit(progress);
+    if (!controlsShape || !controlsClip) return;
+    const path = buildControlsSurfacePath(controlsSurfaceProgress);
+    controlsShape.setAttribute('d', path);
+    controlsClip.style.clipPath = `path("${path}")`;
+  }
+
+  function animateControlsSurface(open) {
+    const target = open ? 1 : 0;
+    cancelAnimationFrame(controlsSurfaceFrame);
+    const start = controlsSurfaceProgress;
+    const distance = Math.abs(target - start);
+    if (distance < .001 || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      applyControlsSurfaceProgress(target);
+      return;
+    }
+    const duration = Math.max(90, 260 * distance);
+    const startedAt = performance.now();
+    const tick = now => {
+      const elapsed = clampUnit((now - startedAt) / duration);
+      applyControlsSurfaceProgress(surfaceMix(start, target, surfaceEase(elapsed)));
+      if (elapsed < 1) controlsSurfaceFrame = requestAnimationFrame(tick);
+    };
+    controlsSurfaceFrame = requestAnimationFrame(tick);
+  }
+
+  function isPanelOpen() {
+    return panelOpen;
+  }
+
+  function setPanelOpen(open, restoreFocus = false) {
+    panelOpen = Boolean(open && controlsRoot);
+    if (!panelOpen) closeCustomSelects();
+    if (!controlsRoot) return;
+    controlsRoot.dataset.panelOpen = String(panelOpen);
+    gear.dataset.open = String(panelOpen);
+    gear.setAttribute('aria-expanded', String(panelOpen));
+    panel.setAttribute('aria-hidden', String(!panelOpen));
+    animateControlsSurface(panelOpen);
+    if (panelOpen) {
+      syncPanel();
+      updateStatus();
+    } else if (restoreFocus) {
+      gear.focus({ preventScroll: true });
+    }
+  }
+
+  function setControlsVisible(visible) {
+    if (!controlsRoot) return;
+    controlsRoot.dataset.visible = String(Boolean(visible));
+  }
+
+  function blurControlsFocus() {
+    if (controlsRoot?.contains(document.activeElement)) document.activeElement.blur();
+  }
+
+  function pointInsideRect(x, y, rect) {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  function pointInsideControls(x, y, videoRect) {
+    if (!controlsRoot) return false;
+    const rootRect = controlsRoot.getBoundingClientRect();
+    return pointInsideRect(x, y, rootRect) && pointInsideRect(x, y, videoRect);
+  }
+
   document.addEventListener('mousemove', (e) => {
     const now = performance.now();
     // gaming mice fire mousemove at up to 1000Hz; the rect read below forces
@@ -2086,29 +2406,89 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
     // reuse pump's cached rect while running - a per-mousemove rect read forces
     // layout up to 30x/s on heavy pages for a hit test that tolerates 250ms staleness
     const r = (running && lastVr && now - lastVrT < 250) ? lastVr : v.getBoundingClientRect();
-    if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+    const insideVideo = pointInsideRect(e.clientX, e.clientY, r);
+    const insideControls = pointInsideControls(e.clientX, e.clientY, r);
+    if (insideVideo || insideControls) {
       revealUntil = now + 2000;
-      placeSideButtons(r);
+      placeSideButtons(r, v);
       // hovering a video signals intent: build the runtime NOW (weights fetch +
       // shader compilation, the expensive part) so the FC click lands instantly
-      if (!rt && !rtBuilding && now - preloadFailT > 5000) {
+      if (insideVideo && !rt && !rtBuilding && now - preloadFailT > 5000) {
         ensureRuntime().catch((err) => { preloadFailT = performance.now(); log('preload', err); });
       }
-    } else if (revealUntil > now + 250) {
-      revealUntil = now + 250; // pointer left the player: fade soon, not in 2s
+    } else {
+      revealUntil = Math.min(revealUntil, now + 250);
+      blurControlsFocus();
+      setPanelOpen(false);
+      setControlsVisible(false);
     }
   }, { passive: true });
 
-  // FC + settings live INSIDE the player: centered vertically at the left edge
-  let sbLeft = -1, sbTop = -1;
-  function placeSideButtons(r) {
-    btn.style.display = gear.style.display = 'block';
-    const left = Math.round(r.left + 12), cy = Math.round(r.top + r.height / 2);
-    if (left === sbLeft && cy === sbTop) return; // no writes when nothing moved
-    sbLeft = left; sbTop = cy;
-    btn.style.left = gear.style.left = left + 'px';
-    btn.style.top = (cy - 42) + 'px';
-    gear.style.top = (cy + 4) + 'px';
+  // FC + settings are clipped to the <video> box. The stage rests 43 px behind
+  // its left edge and slides right into the picture when the user hovers it.
+  let sbLeft = -1, sbTop = -1, sbWidth = -1, sbHeight = -1, sbCenter = -1;
+  let observedControlsVideo = null, controlsPlacementFrame = 0;
+  const controlsVideoObserver = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => scheduleControlsPlacement())
+    : null;
+
+  function observeControlsVideo(video) {
+    if (!video || observedControlsVideo === video) return;
+    controlsVideoObserver?.disconnect();
+    observedControlsVideo = video;
+    controlsVideoObserver?.observe(video);
+  }
+
+  function scheduleControlsPlacement() {
+    if (controlsPlacementFrame || controlsRoot?.dataset.visible !== 'true') return;
+    controlsPlacementFrame = requestAnimationFrame(() => {
+      controlsPlacementFrame = 0;
+      if (controlsRoot?.dataset.visible !== 'true') return;
+      const video = running ? videoEl : observedControlsVideo || uiVideo;
+      if (video?.isConnected) placeSideButtons(video.getBoundingClientRect(), video);
+    });
+  }
+
+  function placeSideButtons(r, video = null) {
+    if (!controlsRoot) return;
+    observeControlsVideo(video);
+    // Round inward on the physical-pixel grid: at fractional DPR, an integer CSS
+    // edge can still split one device pixel with the area outside the video.
+    const rasterScale = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+      ? devicePixelRatio : 1;
+    const ceilRaster = value => Math.ceil(value * rasterScale) / rasterScale;
+    const floorRaster = value => Math.floor(value * rasterScale) / rasterScale;
+    const left = Math.max(0, ceilRaster(r.left));
+    const right = Math.min(innerWidth, floorRaster(r.right));
+    const topBound = Math.max(0, ceilRaster(r.top));
+    const bottomBound = Math.min(innerHeight, floorRaster(r.bottom));
+    const width = Math.min(376, right - left);
+    const height = Math.min(626, bottomBound - topBound);
+    if (width < 80 || height < 78) {
+      setPanelOpen(false);
+      setControlsVisible(false);
+      return;
+    }
+    if (panelOpen && (width < INLINE_SETTINGS_MIN_WIDTH || height < INLINE_SETTINGS_MIN_HEIGHT)) {
+      setPanelOpen(false);
+    }
+    const preferredTop = Math.round(r.top + r.height / 2 - height / 2);
+    const top = Math.max(topBound, Math.min(preferredTop, bottomBound - height));
+    const center = Math.max(39, Math.min(height - 39,
+      Math.round(r.top + r.height / 2 - top)));
+    if (left !== sbLeft || top !== sbTop || width !== sbWidth || height !== sbHeight || center !== sbCenter) {
+      sbLeft = left; sbTop = top; sbWidth = width; sbHeight = height; sbCenter = center;
+      controlsWidth = width; controlsHeight = height;
+      controlsIslandCenter = center;
+      controlsRoot.style.left = left + 'px';
+      controlsRoot.style.top = top + 'px';
+      controlsRoot.style.width = width + 'px';
+      controlsRoot.style.height = height + 'px';
+      controlsRoot.style.setProperty('--fc-island-center', center + 'px');
+      controlsSurface.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      applyControlsSurfaceProgress(controlsSurfaceProgress);
+    }
+    setControlsVisible(true);
   }
   // vertical feeds: every scroll is an SPA navigation to the next clip. The old
   // stream still dies with a hard stop(), but the user's FC-on intent carries
@@ -2141,19 +2521,26 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
         if (inFeed()) reattach();
       }
     }
-    if (!btn) return;
-    if (panel && panel.style.display === 'block') { revealUntil = performance.now() + 2000; return; }
+    if (!controlsRoot) return;
+    if (panelOpen) {
+      revealUntil = performance.now() + 2000;
+      scheduleControlsPlacement();
+      return;
+    }
+    if (controlsRoot.dataset.visible === 'true') scheduleControlsPlacement();
     if (performance.now() > revealUntil) {
-      btn.style.display = gear.style.display = 'none';
+      setControlsVisible(false);
     }
   }, 300);
   // scrolling moves the video but not our fixed-position buttons - re-pin them
   // (capture: catches scrolling containers, not just the window)
   document.addEventListener('scroll', () => {
-    if (!btn || btn.style.display === 'none') return;
+    if (!controlsRoot || controlsRoot.dataset.visible !== 'true') return;
     const v = running ? videoEl : uiVideo;
-    if (v) placeSideButtons(v.getBoundingClientRect());
+    if (v) placeSideButtons(v.getBoundingClientRect(), v);
   }, { passive: true, capture: true });
+  window.addEventListener('resize', scheduleControlsPlacement, { passive: true });
+  window.visualViewport?.addEventListener('resize', scheduleControlsPlacement, { passive: true });
 
   // crisp monochrome SVG icons (Feather-style) - no emoji
   const ICONS = {
@@ -2485,7 +2872,7 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
       wm.style.display = cfg.showWatermark ? 'block' : 'none';
       wm.style.left = (vr.left + 10) + 'px';
       wm.style.top = (vr.bottom - 26) + 'px';
-      if (btn.style.display !== 'none') placeSideButtons(vr); // stay pinned while running
+      if (controlsRoot?.dataset.visible === 'true') placeSideButtons(vr, videoEl); // stay pinned while running
       updateWarn(now, vr);
       updateAdvise(now, vr);
       if (cfg.compare) {
@@ -2589,7 +2976,7 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
       } else {
         hud.textContent = `FG ${fpsWin.length}fps · ${outputRateLabel()} · ${msAvg.toFixed(0)}ms`;
       }
-      if (panel && panel.style.display === 'block') updateStatus();
+      if (panelOpen) updateStatus();
     }
   }
 
@@ -3319,7 +3706,10 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
     diag.sourceLoopStarts++;
     armVideoFrameLoop(startEpoch);
     armPumpLoop(startEpoch);
-    btn.style.background = 'rgba(25,195,125,.9)';
+    if (btn) {
+      btn.dataset.active = 'true';
+      btn.setAttribute('aria-pressed', 'true');
+    }
   }
   function stop() {
     running = false;
@@ -3345,7 +3735,10 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
     delayMs = DELAY_MS;
     lastTex = null; schedT = 0; lastArrival = 0; lastUniqueTs = 0;
     resetDecodedSourceCadence();
-    btn.style.background = '';
+    if (btn) {
+      btn.dataset.active = 'false';
+      btn.setAttribute('aria-pressed', 'false');
+    }
   }
 
   function biggestVideo() {
@@ -3421,14 +3814,6 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
     } finally { switching = false; }
   }
 
-  // Keep the quick panel inside the viewport on small and embedded players.
-  function clampPanel() {
-    if (!panel || panel.style.display !== 'block') return;
-    const r = panel.getBoundingClientRect();
-    if (r.bottom > innerHeight - 10) panel.style.top = Math.max(10, innerHeight - r.height - 10) + 'px';
-    if (r.right > innerWidth - 10) panel.style.left = Math.max(10, innerWidth - r.width - 10) + 'px';
-  }
-
   async function openAdvancedSettings() {
     const button = panel?.querySelector('#fcOpenSettings');
     if (button) button.disabled = true;
@@ -3447,36 +3832,33 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
   }
 
   function buildPanel() {
-    panel = document.createElement('div');
+    panel = document.createElement('section');
     panel.className = 'fc-panel';
-    panel.style.cssText = 'position:fixed; left:0; top:0; z-index:2147483647;'
-      + 'background:#111315; color:#ddd; border:1px solid #303338;'
-      + 'border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.4);'
-      + 'padding:14px 16px 15px; font:12px/1.5 system-ui; display:none; width:332px; box-sizing:border-box;'
-      + 'max-height:calc(100vh - 20px); overflow-y:auto; overscroll-behavior:contain;';
+    panel.id = 'fcSettingsPanel';
+    panel.setAttribute('aria-label', 'Framegen settings');
+    panel.setAttribute('aria-hidden', 'true');
     panel.innerHTML = `
       <div class="fc-panel-head">
         <div class="fc-brand">
-          <span class="fc-brand-dot" aria-hidden="true"></span>
           <strong>Framegen</strong>
           <span class="fc-version">v${VERSION}</span>
         </div>
         <a class="fc-icon-link" href="https://github.com/MONZikWasTaken/Framegen"
-          target="_blank" rel="noopener noreferrer" title="Open Framegen on GitHub"
+          target="_blank" rel="noopener noreferrer"
           aria-label="Open Framegen on GitHub">
           <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
             <path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.3-5.27-1.29-5.27-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.16 1.18a10.96 10.96 0 0 1 5.75 0c2.19-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.77.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/>
           </svg>
         </a>
       </div>
-      <label class="fc-row fc-profile-row"><span>Profile<small>Apply a saved setup</small></span>
+      <div class="fc-row fc-profile-row"><span>Profile<small>Apply a saved setup</small></span>
         <select class="fc-sel fc-profile" id="fcProfile" disabled>
           <option>Loading profiles…</option>
-        </select></label>
+        </select></div>
       <div class="fc-divider"></div>
       <label class="fc-row"><span>Frame generation<small>Create smoother motion</small></span>
         <input class="fc-sw" type="checkbox" id="fcFG"></label>
-      <label class="fc-row"><span>Output rate<small>Choose how playback is paced</small></span>
+      <div class="fc-row"><span>Output rate<small>Choose how playback is paced</small></span>
         <select class="fc-sel" id="fcFactor">
           <option value="auto">Auto · recommended</option>
           <option value="hz">Match display</option>
@@ -3484,7 +3866,7 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
           <option value="2">2× source</option><option value="3">3× source</option>
           <option value="4">4× source</option><option value="5">5× source</option>
           <option value="6">6× source</option>
-        </select></label>
+        </select></div>
       <label class="fc-target-control">
         <span class="fc-target-head"><span><span id="fcRateSliderTitle">FPS limit</span>
           <small id="fcRateSliderHint">Common rates · Auto may run lower</small></span>
@@ -3499,13 +3881,13 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
         <input class="fc-sw" type="checkbox" id="fcSR"></label>
       <label class="fc-row"><span>HDR<small>Brighter highlights on HDR displays</small></span>
         <input class="fc-sw" type="checkbox" id="fcHDR"></label>
-      <label class="fc-row"><span>Quality<small>Balance detail and GPU load</small></span>
+      <div class="fc-row"><span>Quality<small>Balance detail and GPU load</small></span>
         <select class="fc-sel" id="fcRes">
           <option value="288">Low power</option><option value="360">Efficient</option>
           <option value="480">Balanced</option>
           <option value="720">High</option>
           <option value="1080">Ultra</option>
-        </select></label>
+        </select></div>
       <label class="fc-row"><span>FPS counter<small>Show frame rate and render time</small></span>
         <input class="fc-sw" type="checkbox" id="fcShowFps"></label>
       <label class="fc-row"><span>Watermark<small>Show the Framegen label on video</small></span>
@@ -3518,7 +3900,8 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
           <path fill="currentColor" d="m6 3 5 5-5 5-1.2-1.2L8.6 8 4.8 4.2 6 3Z"/>
         </svg>
       </button>`;
-    document.body.appendChild(panel);
+    controlsClip.appendChild(panel);
+    enhanceCustomSelects(panel);
     const F = panel.querySelector('#fcFactor'), R = panel.querySelector('#fcRes');
     syncPanel();
     loadPanelProfiles().catch(e => log('profiles', e));
@@ -3526,9 +3909,14 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
     panel.querySelector('#fcProfile').onchange = async event => {
       const select = event.currentTarget;
       select.disabled = true;
+      syncCustomSelect(select);
       try { await applyPanelProfile(select.value); }
       catch (e) { log('apply profile', e); }
-      finally { select.disabled = false; syncPanelProfileSelection(); }
+      finally {
+        select.disabled = false;
+        syncPanelProfileSelection();
+        syncCustomSelect(select);
+      }
     };
     F.onchange = () => setOutputRate(F.value);
     const Tf = panel.querySelector('#fcTargetFps');
@@ -3604,21 +3992,65 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
       /* NO backdrop-filter on anything hovering over the RUNNING video: the
          compositor re-blurs the region every frame of a 100+fps canvas - that
          alone janks playback exactly while the cursor summons the UI */
-      .fc-side{position:fixed;z-index:2147483647;
-        width:38px!important;height:38px!important;
-        min-width:38px!important;min-height:38px!important;
-        max-width:38px!important;max-height:38px!important;
-        padding:0!important;margin:0!important;box-sizing:border-box!important;
-        border-radius:50%;
-        border:none;background:rgba(18,18,20,.88);color:#fff;cursor:pointer;display:none;
-        font:600 12px/1 system-ui;box-shadow:0 2px 12px rgba(0,0,0,.4);
-        transition:background .15s,transform .15s}
-      .fc-side:hover{transform:scale(1.1);background:rgba(45,45,45,.85)}
+      .fc-controls-root{--fc-green:#19c37d;--fc-rail-radius:5px;
+        position:fixed!important;z-index:2147483647!important;left:0;top:0;
+        width:376px;height:626px;min-width:0!important;max-width:none!important;
+        margin:0!important;padding:0!important;overflow:hidden!important;box-sizing:border-box!important;
+        border:0!important;background:transparent!important;pointer-events:none!important}
+      .fc-controls-stage{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+        opacity:0;transform:translateX(-43px);
+        transition:transform .26s cubic-bezier(.45,0,.55,1),opacity 0s linear .26s;
+        will-change:transform;pointer-events:none!important}
+      .fc-controls-root[data-visible="true"] .fc-controls-stage{opacity:1;transform:translateX(0);
+        transition:transform .18s cubic-bezier(.22,.75,.25,1),opacity 0s linear}
+      .fc-controls-root:focus-within .fc-controls-stage{opacity:1;transform:translateX(0);
+        transition:transform .18s cubic-bezier(.22,.75,.25,1),opacity 0s linear}
+      .fc-control-surface{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+        overflow:visible!important;pointer-events:none!important;filter:drop-shadow(0 2px 4px rgba(0,0,0,.28))}
+      .fc-surface-shape{fill:rgba(13,14,15,.97);stroke:rgba(255,255,255,.13);stroke-width:1;
+        vector-effect:non-scaling-stroke}
+      .fc-settings-clip{position:absolute!important;z-index:1!important;inset:0!important;
+        width:100%!important;height:100%!important;pointer-events:none;will-change:clip-path}
+      .fc-controls-root[data-panel-open="true"] .fc-settings-clip{pointer-events:auto}
+      .fc-control-rail{position:absolute!important;z-index:2!important;left:5px!important;
+        top:var(--fc-island-center)!important;width:34px!important;display:grid!important;gap:2px!important;
+        transform:translateY(-50%);pointer-events:none}
+      .fc-controls-root[data-visible="true"] .fc-control-rail,
+      .fc-controls-root:focus-within .fc-control-rail{pointer-events:auto}
+      .fc-side{position:relative!important;width:34px!important;height:34px!important;
+        min-width:34px!important;min-height:34px!important;max-width:34px!important;max-height:34px!important;
+        display:grid!important;place-items:center!important;padding:0!important;margin:0!important;
+        box-sizing:border-box!important;border:0!important;border-radius:var(--fc-rail-radius)!important;
+        background:transparent!important;color:#fff!important;cursor:pointer!important;font:600 12px/1 system-ui!important;
+        box-shadow:none!important;opacity:1!important;transform:none!important;
+        transition:background-color .12s ease,color .12s ease!important}
+      .fc-side:hover{background:rgba(255,255,255,.09)!important;color:#fff!important;transform:none!important}
+      .fc-side:focus-visible{outline:1px solid rgba(255,255,255,.72)!important;outline-offset:-2px!important}
+      .fc-side[data-active="true"]{background:var(--fc-green)!important;color:#fff!important}
+      .fc-side[data-active="true"]:hover{background:#20cd85!important}
+      .fc-side[data-open="true"]{background:rgba(255,255,255,.11)!important;color:#fff!important}
+      .fc-side svg{display:block!important;margin:auto!important}
+      .fc-mark{width:19px!important;height:14px!important}
+      .fc-settings-icon{width:17px!important;height:17px!important}
+      .fc-panel{position:absolute!important;left:43px!important;top:0!important;width:calc(100% - 44px)!important;
+        height:100%!important;min-width:0!important;max-width:none!important;padding:14px 16px 15px!important;
+        margin:0!important;box-sizing:border-box!important;border:0!important;border-radius:0!important;
+        background:transparent!important;box-shadow:none!important;color:#ddd!important;
+        font:12px/1.5 system-ui,sans-serif!important;overflow-y:auto!important;overscroll-behavior:contain;
+        opacity:0;visibility:hidden;pointer-events:none;transform:translateX(-3px);transform-origin:left center;
+        transition:transform .07s cubic-bezier(.4,0,1,1),opacity .07s linear,visibility 0s linear .07s;
+        will-change:transform,opacity}
+      .fc-panel{scrollbar-width:thin;scrollbar-color:#555a61 transparent}
+      .fc-panel::-webkit-scrollbar{width:6px}
+      .fc-panel::-webkit-scrollbar-track{background:transparent}
+      .fc-panel::-webkit-scrollbar-thumb{border-radius:3px;background:#555a61}
+      .fc-controls-root[data-panel-open="true"] .fc-panel{opacity:1;visibility:visible;pointer-events:auto;
+        transform:translateX(0);transition:transform .11s cubic-bezier(.2,.8,.25,1) .15s,
+        opacity .11s linear .15s,visibility 0s linear}
       .fc-panel-head{height:30px;display:flex;align-items:center;justify-content:space-between;
         margin:0 0 8px;padding:0;border:0}
-      .fc-brand{display:flex;align-items:center;gap:7px;color:#f4f5f5;font:12px/1 system-ui}
+      .fc-brand{display:flex;align-items:center;gap:6px;color:#f4f5f5;font:12px/1 system-ui}
       .fc-brand strong{font:650 14px/1 system-ui;color:#f4f5f5}
-      .fc-brand-dot{width:8px;height:8px;border-radius:50%;background:#19c37d}
       .fc-version{color:#747980;font:400 10px/1 system-ui}
       .fc-icon-link{width:28px;height:28px;display:flex;align-items:center;justify-content:center;
         border-radius:7px;color:#92979e;text-decoration:none;outline:none;
@@ -3644,25 +4076,37 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
       .fc-sw:checked{background:#19c37d}
       .fc-sw:checked::after{left:18px}
       .fc-sw:focus-visible{outline:2px solid #19c37d;outline-offset:2px}
-      /* customizable select (Chrome base-select): button + popup in the same glass */
-      .fc-sel, .fc-sel::picker(select){appearance:base-select}
-      .fc-sel{background:#1b1e21;color:#eee;border:1px solid #383c41;
-        border-radius:8px;padding:6px 10px;font:12px system-ui;outline:none;cursor:pointer;
-        flex:none;min-width:154px;max-width:174px;display:flex;align-items:center;justify-content:space-between;
-        gap:8px;transition:background .15s,border-color .15s}
-      .fc-sel:hover{background:#22262a;border-color:#50555c}
-      .fc-sel:focus-visible{outline:2px solid #19c37d;outline-offset:1px}
-      .fc-sel:open{border-color:rgba(25,195,125,.6)}
-      .fc-sel::picker-icon{color:#8a8f98;font-size:9px;transition:rotate .15s}
-      .fc-sel:open::picker-icon{rotate:180deg}
-      .fc-sel::picker(select){background:rgba(20,22,26,.95);backdrop-filter:blur(12px);
-        border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:4px;margin-top:4px;
-        box-shadow:0 8px 28px rgba(0,0,0,.55)}
-      .fc-sel option{padding:5px 10px;border-radius:7px;font:12px system-ui;color:#ddd;
-        background:transparent;cursor:pointer}
-      .fc-sel option:hover{background:rgba(255,255,255,.09)}
-      .fc-sel option:checked{background:rgba(25,195,125,.16);color:#8ee7bd}
-      .fc-sel option::checkmark{color:#19c37d}
+      .fc-sel:not([data-enhanced="true"]){width:154px;height:31px;flex:none;border:1px solid #34373b;
+        border-radius:var(--fc-rail-radius);background:#181a1d;color:#eceeef;font:12px/1 system-ui,sans-serif}
+      .fc-sel[data-enhanced="true"]{display:none!important}
+      .fc-select{position:relative;width:154px;flex:none;font:12px/1 system-ui,sans-serif}
+      .fc-select-trigger{width:100%;height:31px;display:flex;align-items:center;justify-content:space-between;
+        gap:8px;margin:0;padding:0 9px 0 10px;border:1px solid #34373b;
+        border-radius:var(--fc-rail-radius);background:#181a1d;color:#eceeef;font:inherit;
+        text-align:left;cursor:pointer;outline:0;transition:background-color .12s ease,border-color .12s ease}
+      .fc-select-trigger:hover{background:#202327;border-color:#484c52}
+      .fc-select-trigger:focus-visible{outline:2px solid var(--fc-green);outline-offset:1px}
+      .fc-select-trigger:disabled{opacity:.55;cursor:wait}
+      .fc-select[data-open="true"] .fc-select-trigger{background:#202327;border-color:#5a5f66}
+      .fc-select-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .fc-select-chevron{width:12px;height:12px;flex:none;color:#8d9299;transition:transform .12s ease}
+      .fc-select[data-open="true"] .fc-select-chevron{transform:rotate(180deg)}
+      .fc-select-menu{position:absolute;z-index:20;top:calc(100% + 4px);right:0;width:164px;
+        max-height:250px;overflow-y:auto;padding:4px;border:1px solid #383c41;
+        border-radius:var(--fc-rail-radius);background:#151719;box-shadow:0 4px 8px rgba(0,0,0,.28)}
+      .fc-select[data-placement="up"] .fc-select-menu{top:auto;bottom:calc(100% + 4px)}
+      .fc-select-menu[hidden]{display:none!important}
+      .fc-select-options-group{margin:0;padding:0}
+      .fc-select-group{padding:7px 8px 4px;color:#737980;font:500 10px/1 system-ui,sans-serif}
+      .fc-select-option{width:100%;min-height:30px;display:flex;align-items:center;justify-content:space-between;
+        gap:10px;margin:0;padding:0 10px;border:0;border-radius:3px;background:transparent;color:#d8dadd;
+        font:inherit;text-align:left;cursor:pointer;outline:0;white-space:nowrap}
+      .fc-select-option:hover,.fc-select-option:focus-visible{background:#23262a;color:#f4f5f5}
+      .fc-select-option:focus-visible{box-shadow:inset 0 0 0 1px #555a61}
+      .fc-select-option[aria-selected="true"]{color:#f4f5f5}
+      .fc-select-option::after{content:'';width:7px;height:4px;flex:none;border-left:1.5px solid transparent;
+        border-bottom:1.5px solid transparent;transform:rotate(-45deg) translateY(-1px)}
+      .fc-select-option[aria-selected="true"]::after{border-color:var(--fc-green)}
       .fc-target-control{display:block;padding:2px 0 8px;margin:0;cursor:pointer}
       .fc-target-control[hidden]{display:none}
       .fc-target-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
@@ -3692,12 +4136,51 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
       .fc-open-settings:focus-visible{outline:2px solid #19c37d;outline-offset:1px}
       .fc-open-settings:disabled{opacity:.55;cursor:wait}`;
     (document.head || document.documentElement).appendChild(css);
+
+    controlsRoot = document.createElement('div');
+    controlsRoot.className = 'fc-controls-root';
+    controlsRoot.dataset.visible = 'false';
+    controlsRoot.dataset.panelOpen = 'false';
+    controlsRoot.style.setProperty('--fc-island-center', controlsIslandCenter + 'px');
+    controlsRoot.innerHTML = `
+      <div class="fc-controls-stage">
+        <svg class="fc-control-surface" viewBox="0 0 376 626" aria-hidden="true">
+          <path class="fc-surface-shape"></path>
+        </svg>
+        <div class="fc-control-rail"></div>
+        <div class="fc-settings-clip"></div>
+      </div>`;
+    controlsStage = controlsRoot.querySelector('.fc-controls-stage');
+    controlsSurface = controlsRoot.querySelector('.fc-control-surface');
+    controlsShape = controlsRoot.querySelector('.fc-surface-shape');
+    controlsClip = controlsRoot.querySelector('.fc-settings-clip');
+    const controlsRail = controlsRoot.querySelector('.fc-control-rail');
+
     btn = document.createElement('button');
-    btn.textContent = 'FG';
     btn.className = 'fc-side';
+    btn.type = 'button';
+    btn.dataset.active = 'false';
+    btn.setAttribute('aria-label', 'Toggle Framegen');
+    btn.setAttribute('aria-pressed', 'false');
+    btn.innerHTML = `
+      <svg class="fc-mark" viewBox="0 0 28 20" aria-hidden="true">
+        <path d="M3.5 16.5v-13h7.25M3.5 9.75h6M24 6.15c-.9-1.75-2.4-2.65-4.45-2.65-3.6 0-5.85 2.75-5.85 6.5s2.25 6.5 5.9 6.5c1.9 0 3.45-.65 4.5-1.9v-4h-4.65"
+          fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter"/>
+      </svg>`;
     gear = document.createElement('button');
-    gear.innerHTML = svgIcon('gear', 17);
     gear.className = 'fc-side';
+    gear.type = 'button';
+    gear.dataset.open = 'false';
+    gear.setAttribute('aria-label', 'Open Framegen settings');
+    gear.setAttribute('aria-controls', 'fcSettingsPanel');
+    gear.setAttribute('aria-expanded', 'false');
+    gear.innerHTML = `
+      <svg class="fc-settings-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1.5 14H7m2-6h6m2.5 8H21"
+          fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>`;
+    controlsRail.append(btn, gear);
+
     hud = document.createElement('div');
     // single line, pinned to the video's TOP-LEFT; plain dark bar, white text
     hud.style.cssText = 'position:fixed; left:0; top:0; z-index:2147483647;'
@@ -3709,31 +4192,63 @@ fn sampleColor(uv: vec2<f32>) -> vec3<f32> {
       + 'color:#fff; font:600 12px system-ui; opacity:.75; pointer-events:none;'
       + 'text-shadow:0 1px 3px rgba(0,0,0,.8); display:none;';
     wm.textContent = 'Framegen';
-    document.body.appendChild(wm);
     buildPanel();
+    applyControlsSurfaceProgress(0);
     ensureBar();
     btn.onclick = toggleFC;
     gear.onclick = () => {
-      const open = panel.style.display === 'none';
-      panel.style.display = open ? 'block' : 'none';
-      if (open) { // dock next to the gear, clamped to the viewport
-        const g = gear.getBoundingClientRect();
-        panel.style.left = Math.min(g.right + 10, innerWidth - panel.offsetWidth - 10) + 'px';
-        panel.style.top = Math.max(10, Math.min(g.top - panel.offsetHeight / 2, innerHeight - panel.offsetHeight - 10)) + 'px';
-        updateStatus();
-        clampPanel();
+      if (controlsWidth < INLINE_SETTINGS_MIN_WIDTH || controlsHeight < INLINE_SETTINGS_MIN_HEIGHT) {
+        setPanelOpen(false);
+        openAdvancedSettings();
+        return;
       }
+      setPanelOpen(!isPanelOpen());
     };
-    document.body.appendChild(btn);
-    document.body.appendChild(gear);
-    document.body.appendChild(hud);
+    controlsRoot.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !isPanelOpen()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPanelOpen(false, true);
+    });
+    controlsRoot.addEventListener('pointerdown', event => {
+      if (!event.target.closest('.fc-select')) closeCustomSelects();
+      event.stopPropagation();
+    });
+    controlsRoot.addEventListener('click', event => event.stopPropagation());
+    controlsRoot.addEventListener('focusin', () => {
+      const activeVideo = running ? videoEl : biggestVideo();
+      if (!activeVideo) return;
+      uiVideo = activeVideo;
+      revealUntil = performance.now() + 2000;
+      placeSideButtons(activeVideo.getBoundingClientRect(), activeVideo);
+    });
+    controlsRoot.addEventListener('focusout', () => {
+      requestAnimationFrame(() => {
+        if (controlsRoot?.contains(document.activeElement)) return;
+        setPanelOpen(false);
+      });
+    });
+    controlsRoot.addEventListener('mouseleave', event => {
+      const activeVideo = running ? videoEl : uiVideo;
+      const videoRect = activeVideo?.getBoundingClientRect();
+      if (videoRect && pointInsideRect(event.clientX, event.clientY, videoRect)) return;
+      blurControlsFocus();
+      setPanelOpen(false);
+      setControlsVisible(false);
+    });
+    window.addEventListener('blur', () => {
+      blurControlsFocus();
+      setPanelOpen(false);
+      setControlsVisible(false);
+    });
+    document.body.append(controlsRoot, wm, hud);
   }
 
   // toolbar popup protocol: status snapshot + remote toggle. With all_frames every
   // frame gets the message; the RUNNING frame answers instantly, a frame that merely
   // has a video answers after 120ms, video-less frames after 250ms - first response
   // wins, so the most relevant frame speaks for the tab.
-  const VERSION = '1.4.6';
+  const VERSION = '1.4.7';
   try {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg && msg.type === 'fcStatus') {
