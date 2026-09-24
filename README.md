@@ -4,9 +4,9 @@
 
 # Framegen
 
-**Silky-smooth video in your browser.** A Chrome extension that turns 24-30 fps
-video into 60-240 fps in real time - with a neural network running entirely on
-your GPU. No servers, no accounts, nothing leaves your computer.
+**Une vidéo d'une douceur de soie dans votre navigateur.** Une extension Chrome qui transforme
+les vidéos de 24-30 fps en 60-240 fps en temps réel - avec un réseau de neurones fonctionnant
+entièrement sur votre GPU. Pas de serveurs, pas de comptes, rien ne quitte votre ordinateur.
 
 [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/hpdpcjakhclhljfdkpjolonjlopbdhfk?label=chrome%20web%20store&color=19c37d)](https://chromewebstore.google.com/detail/framegen-frame-interpolat/hpdpcjakhclhljfdkpjolonjlopbdhfk)
 [![License](https://img.shields.io/badge/code-MIT-blue)](LICENSE)
@@ -15,164 +15,166 @@ your GPU. No servers, no accounts, nothing leaves your computer.
 
 <img src="docs/media/hero.gif" width="880" alt="15 fps source vs Framegen x4 interpolation, side by side">
 
-*Real output of the shipped model (v7 small), not a mockup. In the browser
-this runs in real time: 2.0 ms per generated frame at 720p on an RTX 4060 Ti.*
+*Rendu réel du modèle livré (v7 small), pas une maquette. Dans le navigateur
+cela s'exécute en temps réel : 2.0 ms par image générée en 720p sur une RTX 4060 Ti.*
 
 https://github.com/user-attachments/assets/87fe417d-e161-40d9-8007-ac83edafcbb1
 
-Live demo: real YouTube, the compare slider (original | Framegen), the debug
-HUD - recorded at 60 fps on an RTX 4060 Ti.
-**[Full 50-second version](https://github.com/MONZikWasTaken/Framegen/releases/download/v1.0.0/framegen-live-demo.mp4)**.
-*(Footage: Sintel © Blender Foundation, CC-BY.)*
+Démo en direct : YouTube réel, le curseur de comparaison (original | Framegen), le HUD de
+débogage - enregistrée à 60 fps sur une RTX 4060 Ti.
+**[Version complète de 50 secondes](https://github.com/MONZikWasTaken/Framegen/releases/download/v1.0.0/framegen-live-demo.mp4)**.
+*(Images : Sintel © Blender Foundation, CC-BY.)*
 
 </div>
 
-## What it does
+**🇫🇷 Français** · [🇬🇧 English](README.en.md)
 
-- **2×-6× more frames** on any `<video>` - movies, series, sports, anime,
-  screen recordings; YouTube and most video sites
-- **Auto mode** picks the highest factor your GPU actually sustains, and backs
-  off before you'd see a stutter
-- **Anime mode** detects animation drawn "on twos" and interpolates the real
-  motion instead of the duplicated frames
-- **Display-Hz mode** follows your monitor with a small recovery margin so an
-  occasional delayed frame does not turn into a permanent drop
-- **Compare slider** - drag a divider across the video: original on the left,
-  Framegen on the right
-- **Private by construction** - the whole pipeline runs on your GPU; we collect
-  literally nothing
+## Ce qu'il fait
 
-An interpolated frame costs ~2 ms on a mid-range GPU (RTX 4060 Ti) - the
-model and inference runtime are custom-built for this (a 2.9 MB network on
-hand-written WebGPU kernels; details in [docs/TECHNICAL.md](docs/TECHNICAL.md)).
+- **2× à 6× plus d'images** sur n'importe quel `<video>` - films, séries, sports, animés,
+  enregistrements d'écran ; YouTube et la plupart des sites vidéo
+- **Le mode automatique** choisit le facteur le plus élevé que votre GPU soutient réellement,
+  et recule avant qu'une saccade n'apparaisse
+- **Le mode animé** détecte l'animation dessinée « on twos » et interpole le vrai
+  mouvement au lieu des images dupliquées
+- **Le mode Hz de l'écran** suit votre moniteur avec une petite marge de récupération afin qu'une
+  image occasionnellement en retard ne devienne pas une baisse permanente
+- **Curseur de comparaison** - faites glisser un séparateur sur la vidéo : l'original à gauche,
+  Framegen à droite
+- **Privé par conception** - toute la chaîne de traitement s'exécute sur votre GPU ; nous ne collectons
+  littéralement rien
 
-## Install
+Une image interpolée coûte ~2 ms sur un GPU de milieu de gamme (RTX 4060 Ti) - le
+modèle et le moteur d'inférence ont été construits sur mesure pour ça (un réseau de
+2.9 MB avec des noyaux WebGPU écrits à la main ; détails dans [docs/TECHNICAL.md](docs/TECHNICAL.md)).
 
-**[Add to Chrome from the Web Store](https://chromewebstore.google.com/detail/framegen-frame-interpolat/hpdpcjakhclhljfdkpjolonjlopbdhfk)** - one click.
+## Installation
 
-Manual install (if you want the newest build before it clears store review):
-download `framegen-extension.zip` from the
-[latest release](https://github.com/MONZikWasTaken/Framegen/releases/latest),
-extract it, open `chrome://extensions`, enable **Developer mode**, click
-**Load unpacked** and select the extracted folder.
+**[Ajouter à Chrome depuis le Web Store](https://chromewebstore.google.com/detail/framegen-frame-interpolat/hpdpcjakhclhljfdkpjolonjlopbdhfk)** - un clic.
 
-Requirements: **Chrome 121+** on a machine with a GPU (Windows, macOS with
-Apple Silicon, Linux). Firefox and Safari don't ship the WebGPU features we
-need yet.
+Installation manuelle (si vous voulez la version la plus récente avant qu'elle ne passe la
+validation de la boutique) : téléchargez `framegen-extension.zip` depuis la
+[dernière version](https://github.com/MONZikWasTaken/Framegen/releases/latest),
+extrayez-la, ouvrez `chrome://extensions`, activez le **Mode développeur**, cliquez sur
+**Charger une extension non empaquetée** et sélectionnez le dossier extrait.
 
-### Development install
+Prérequis : **Chrome 121+** sur une machine dotée d'un GPU (Windows, macOS avec
+Apple Silicon, Linux). Firefox et Safari ne fournissent pas encore les fonctionnalités WebGPU dont
+nous avons besoin.
 
-The repository keeps the WebGPU runtime and released model files in
-`extension/`, so a fresh clone is directly loadable on macOS, Windows, and
-Linux. `tools/build_extension.ps1` validates those files and creates both
-release ZIP layouts; it fails instead of packaging a missing, mismatched, or
-stale runtime payload. If local model exports exist in the ignored `assets/`
-directory, their hashes must match the tracked payload. Use
-`tools/build_extension.ps1 -PromoteLocalAssets` to deliberately promote those
-exports, then review and commit the resulting `extension/assets` changes.
+### Installation pour le développement
 
-For ordinary non-DRM HTML5 players, the overlay mirrors CSS `object-fit`
-(`fill`, `contain`, `cover`, `none`, and `scale-down`) and `object-position`.
-If an unscaled source exceeds the FHD canvas safety limit, Framegen leaves the
-raw video visible instead of presenting a misaligned overlay.
+Le dépôt conserve le moteur WebGPU et les fichiers de modèle publiés dans
+`extension/`, si un clone fraîchement créé est donc directement chargeable sur macOS, Windows et
+Linux. `tools/build_extension.ps1` valide ces fichiers et crée les deux
+dispositions de ZIP de publication ; il échoue au lieu d'empaqueter un contenu de moteur manquant, incompatible ou
+obsolète. Si des exports de modèle locaux existent dans le répertoire ignoré `assets/`,
+leurs empreintes doivent correspondre au contenu suivi. Utilisez
+`tools/build_extension.ps1 -PromoteLocalAssets` pour promouvoir délibérément ces
+exports, puis examinez et commitez les modifications résultantes dans `extension/assets`.
 
-To load a development checkout locally:
+Pour les lecteurs HTML5 classiques sans DRM, la superposition reproduit CSS `object-fit`
+(`fill`, `contain`, `cover`, `none` et `scale-down`) et `object-position`.
+Si une source non mise à l'échelle dépasse la limite de sécurité du canevas FHD, Framegen laisse la
+vidéo brute visible au lieu d'afficher une superposition mal alignée.
 
-1. Clone or download this repository.
-2. Open `chrome://extensions` or `edge://extensions`.
-3. Enable **Developer mode**, choose **Load unpacked**, and select the
-   repository's `extension` folder.
-4. Reload the video page after reloading the extension.
+Pour charger une copie de développement localement :
 
-The Debug setting in Framegen's gear menu shows source-frame timing,
-`requestVideoFrameCallback`, render-loop, inference, presentation, and canvas
-dimensions for troubleshooting.
+1. Clonez ou téléchargez ce dépôt.
+2. Ouvrez `chrome://extensions` ou `edge://extensions`.
+3. Activez le **Mode développeur**, choisissez **Charger une extension non empaquetée** et sélectionnez le
+   dossier `extension` du dépôt.
+4. Rechargez la page vidéo après avoir rechargé l'extension.
 
-## How to use
+Le réglage Debug dans le menu d'engrenage de Framegen affiche le minutage des images source,
+`requestVideoFrameCallback`, la boucle de rendu, l'inférence, la présentation et les
+dimensions du canevas, pour le dépannage.
 
-1. Open any video and hover over it - a round **FC** button appears at the
-   left edge of the player.
-2. Click it. The button turns green, an fps readout appears, and the video is
-   now interpolated. Click again to turn it off.
-3. The **gear** button next to it keeps the quick settings inside the player.
-   Choose **Advanced settings** there or in the extension popup when you want the
-   full-screen profile editor.
+## Comment l'utiliser
 
-| Setting | What it does |
+1. Ouvrez n'importe quelle vidéo et survolez-la - un bouton rond **FC** apparaît sur le
+   bord gauche du lecteur.
+2. Cliquez dessus. Le bouton devient vert, un affichage d'fps apparaît, et la vidéo est
+   désormais interpolée. Cliquez à nouveau pour l'éteindre.
+3. Le bouton **engrenage** à côté garde les réglages rapides à l'intérieur du lecteur.
+   Choisissez **Paramètres avancés** là-bas ou dans la fenêtre de l'extension quand vous voulez l'éditeur de
+   profils plein écran.
+
+| Réglage | Ce qu'il fait |
 |---|---|
-| **Output rate** | `auto` is right for most people and can use an optional FPS limit. You can also choose any custom Target FPS, fixed 2×-6×, or `display Hz` to pace just below your monitor's measured limit for recovery headroom. A custom target is kept between 2× the measured source FPS and the real display/GPU limit |
-| **Quality** | Resolution of the inserted frames. `480` is the sweet spot; raise it on a strong GPU |
-| **Model** | `v7s` (current default) or `v6` (legacy; retained until v8 replaces it) |
-| **Anime mode** | Keep on for anime; harmless elsewhere |
-| **SR 2×** | Neural upscale of inserted frames - costs GPU, sharper result |
-| **Compare** | The split slider, for seeing the difference yourself |
+| **Fréquence de sortie** | `auto` convient à la plupart des gens et peut utiliser une limite de FPS facultative. Vous pouvez aussi choisir n'importe quelle FPS cible personnalisée, un facteur fixe de 2×-6×, ou `display Hz` pour cadencer juste en dessous de la limite mesurée de votre moniteur et garder une marge de récupération. Une cible personnalisée est maintenue entre 2× les FPS mesurées de la source et la limite réelle écran/GPU |
+| **Qualité** | Résolution des images insérées. `480` est le meilleur compromis ; augmentez-la sur un GPU puissant |
+| **Modèle** | `v7s` (actuel par défaut) ou `v6` (ancien ; conservé jusqu'à ce que v8 le remplace) |
+| **Mode animé** | Laissez-le activé pour les animés ; inoffensif ailleurs |
+| **SR 2×** | Mise à l'échelle neuronale des images insérées - coûte du GPU, résultat plus net |
+| **Comparaison** | Le curseur de découpe, pour voir la différence vous-même |
 
-The full settings page lets you keep the live settings as-is or save any number
-of your own local profiles that can be created, duplicated, renamed, deleted,
-and reset. It also exposes
-the supported visibility controls, including the FPS counter, small
-`framegen` watermark, and optional performance notices. Existing settings
-are migrated without losing values.
+La page complète des réglages vous permet de garder les réglages en direct tels quels ou d'enregistrer
+autant de profils locaux que vous voulez, qui peuvent être créés, dupliqués, renommés, supprimés
+et réinitialisés. Elle expose aussi
+les contrôles de visibilité pris en charge, notamment le compteur de FPS, le petit
+filigrane `framegen` et les avis de performance facultatifs. Les réglages existants
+sont migrés sans perte de valeurs.
 
-**Good first test:** anything shot at 24 fps - a movie trailer, a film scene
-with a slow camera pan, an anime opening. That's where the difference hits
-hardest. On a 60 Hz screen you'll see 24→60; on a 144-240 Hz screen,
-considerably more.
+**Bon premier test :** tout ce qui est tourné à 24 fps - une bande-annonce, une scène
+de film avec un panoramique lent, le générique d'un animé. C'est là que la différence se
+fait le plus sentir. Sur un écran 60 Hz vous verrez 24→60 ; sur un écran 144-240 Hz,
+nettement plus.
 
 ## FAQ
 
-**It says "no video found" / the button doesn't appear.**
-Make sure the video is actually playing. On some players the button appears
-only when the mouse is over the video itself.
+**Il indique « aucune vidéo trouvée » / le bouton n'apparaît pas.**
+Assurez-vous que la vidéo est bien en lecture. Sur certains lecteurs le bouton n'apparaît
+que quand la souris est sur la vidéo elle-même.
 
-**Does it work on Netflix / Crunchyroll?**
-No, and it can't: DRM-protected video is invisible to extensions by design -
-the browser hands us black frames. YouTube and most other sites work.
+**Est-ce que ça marche sur Netflix / Crunchyroll ?**
+Non, et c'est impossible : les vidéos protégées par DRM sont invisibles pour les extensions par conception -
+le navigateur nous rend des images noires. YouTube et la plupart des autres sites fonctionnent.
 
-**My fps counter shows less than the promised factor.**
-Auto mode adapts to your GPU's real headroom - it will never stutter to hit a
-number. Lower the quality setting or the factor ceiling if you want more.
+**Mon compteur de fps affiche moins que le facteur promis.**
+Le mode automatique s'adapte à la marge réelle de votre GPU - il ne saccadera jamais pour atteindre
+un chiffre. Baissez le réglage de qualité ou le plafond du facteur si vous en voulez plus.
 
-**Does it phone home?**
-No. There is no server, no telemetry, no analytics. The extension is a local
-GPU pipeline; the code is right here to check.
+**Envoie-t-il des données à votre insu ?**
+Non. Il n'y a pas de serveur, pas de télémétrie, pas d'analytiques. L'extension est une chaîne de
+traitement locale sur GPU ; le code est juste ici à vérifier.
 
-**Is my GPU good enough?**
-If it can run the video at all, 2× at 480p almost certainly fits. The HUD
-shows the per-frame cost in ms - budget is roughly `(factor-1) × cost <
+**Mon GPU est-il assez performant ?**
+S'il parvient déjà à lire la vidéo, 2× en 480p convient presque certainement. Le HUD
+affiche le coût par image en ms - le budget est grossièrement `(factor-1) × cost <
 frame interval`.
 
-## The story
+## L'histoire
 
-Framegen is older than this repo. The idea - and the first prototype - date
-back six months before the first commit here. That prototype never got
-published: it worked far too poorly to show anyone. But the idea refused to
-go away, and for half a year I kept watching the space - and nobody shipped
-it properly: real-time neural frame interpolation, in the browser, on any
-video, for anyone. So I decided to build it myself. That's how Framegen
-happened.
+Framegen est plus ancien que ce dépôt. L'idée - et le premier prototype - re-
+montent à six mois avant le premier commit ici. Ce prototype n'a jamais été
+publié : il marchait beaucoup trop mal pour être montré à qui que ce soit. Mais l'idée refusait de
+disparaître, et pendant six mois j'ai continué à surveiller le domaine - et personne ne l'a
+livré correctement : l'interpolation neuronale d'images en temps réel, dans le navigateur, sur n'importe quelle
+vidéo, pour tout le monde. J'ai donc décidé de le construire moi-même. C'est ainsi que Framegen
+est né.
 
-## Support the project
+## Soutenir le projet
 
-Framegen is built by **one person** with one mid-range GPU. The extension is
-free and will stay free - but the models behind it are not free to make:
-every training experiment runs on rented cloud GPUs paid out of pocket
-($5-30 per run, and a new model generation takes dozens of runs before one
-is good enough to ship). The next, bigger model is designed and waiting -
-mostly for GPU-hours.
+Framegen est construit par **une seule personne** avec un seul GPU de milieu de gamme. L'extension est
+gratuite et le restera - mais les modèles qui l'animent ne sont pas gratuits à produire :
+chaque expérience d'entraînement s'exécute sur des GPU cloud loués, payés de poche
+($5-30 par run, et une génération de modèles en prend des dizaines avant qu'un
+seul soit assez bon pour être publié). Le prochain modèle, plus grand, est conçu et attend -
+surtout des heures-GPU.
 
-If Framegen made your video smoother and you want the next model to exist
-sooner:
+Si Framegen a rendu votre vidéo plus fluide et que vous voulez que le prochain modèle existe
+plus tôt :
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/monzikxd)
 
-Starring the repo helps too - visibility is the other currency.
+Mettre une étoile au dépôt aide aussi - la visibilité est l'autre monnaie d'échange.
 
-## Use it as a library
+## L'utiliser comme bibliothèque
 
-The inference runtime is on npm as [`framegen`](https://www.npmjs.com/package/framegen)
-(MIT) - real-time neural frame interpolation for your own project in ~20
-lines, weights included:
+Le moteur d'inférence est disponible sur npm sous le nom [`framegen`](https://www.npmjs.com/package/framegen)
+(MIT) - l'interpolation neuronale d'images en temps réel pour votre propre projet en ~20
+lignes, poids compris :
 
 ```js
 import { createRT } from 'framegen';
@@ -187,23 +189,23 @@ rt.prepPair(frameA, frameB); // t-free trunk, once per pair
 rt.runT(0.5, outTexture);    // any t in (0,1), ~1-2 ms each
 ```
 
-Full API and notes: [packages/rt](packages/rt). Working example: [framegen-fps-booster](https://github.com/MONZikWasTaken/framegen-fps-booster) ([live](https://monzikwastaken.github.io/framegen-fps-booster/)).
+API complète et notes : [packages/rt](packages/rt). Exemple fonctionnel : [framegen-fps-booster](https://github.com/MONZikWasTaken/framegen-fps-booster) ([en ligne](https://monzikwastaken.github.io/framegen-fps-booster/)).
 
-## Under the hood (the short version)
+## Sous le capot (la version courte)
 
-A distilled RIFE-family student (2.9 MB) runs on a hand-written WGSL runtime -
-raw WebGPU compute shaders, no ML framework, matching the PyTorch reference to
-1 LSB. The pipeline is fully GPU-resident: frames never cross to the CPU. From
-the first naive browser attempt to today is a **×500-980 speedup**
-(1957 ms → 2.0-3.75 ms per frame, 720p-1080p).
+Un étudiant de la famille RIFE distillé (2.9 MB) tourne sur un moteur WGSL écrit à la main -
+des shaders de calcul WebGPU bruts, sans framework ML, qui reproduisent la référence PyTorch à
+1 LSB près. La chaîne de traitement réside entièrement dans le GPU : les images ne traversent jamais le CPU. De
+la première tentative naïve dans le navigateur à aujourd'hui, on a un **×500-980 de rapidité**
+(1957 ms → 2.0-3.75 ms par image, 720p-1080p).
 
-Full story, numbers, model ladder and training instructions:
+Histoire complète, chiffres, gamme de modèles et instructions d'entraînement :
 **[docs/TECHNICAL.md](docs/TECHNICAL.md)**
 
-## License
+## Licence
 
-Code: **MIT** ([LICENSE](LICENSE)) - the extension and the inference runtime
-([`framegen`](packages/rt) on npm), embed it in anything, commercial included.
-Model weights: non-commercial research/personal use
-([WEIGHTS_LICENSE.md](WEIGHTS_LICENSE.md)) - they are distilled from a
-RIFE-family teacher whose license chain isn't clean enough to free them yet.
+Code : **MIT** ([LICENSE](LICENSE)) - l'extension et le moteur d'inférence
+([`framegen`](packages/rt) sur npm), intégrez-les dans n'importe quoi, usage commercial compris.
+Poids du modèle : usage personnel et recherche non commerciale
+([WEIGHTS_LICENSE.md](WEIGHTS_LICENSE.md)) - ils sont distillés à partir d'un
+enseignant de la famille RIFE dont la chaîne de licences n'est pas encore assez propre pour les libérer.
